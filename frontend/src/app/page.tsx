@@ -295,6 +295,7 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto pb-32">
           <TrackList
             files={filteredFiles}
+            activeTasks={tasks}
             currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
             isPlaying={isPlaying}
             onTrackPlay={handleTrackPlay}
