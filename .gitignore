@@ -1,0 +1,21 @@
+# Dependencies & Build artifacts
+node_modules/
+.next/
+out/
+build/
+bin/
+
+# Environment & Temp
+.env
+.env.local
+*.log
+
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Downloads folder (local media storage)
+downloads/
+
+# Docker volumes
+.syncthing/
