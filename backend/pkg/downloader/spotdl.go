@@ -23,6 +23,7 @@ const (
 type DownloadTask struct {
 	ID        string     `json:"id"`
 	URL       string     `json:"url"`
+	Bitrate   string     `json:"bitrate"`
 	Status    TaskStatus `json:"status"`
 	Progress  string     `json:"progress"`
 	Logs      []string   `json:"logs"`
@@ -59,15 +60,19 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 	return m
 }
 
-func (m *Manager) AddTask(url string) *DownloadTask {
+func (m *Manager) AddTask(url string, bitrate string) *DownloadTask {
+	if bitrate == "" {
+		bitrate = "320k"
+	}
 	m.mu.Lock()
 	id := fmt.Sprintf("task_%d", time.Now().UnixNano())
 	task := &DownloadTask{
 		ID:        id,
 		URL:       url,
+		Bitrate:   bitrate,
 		Status:    StatusQueued,
 		Progress:  "In queue...",
-		Logs:      []string{fmt.Sprintf("[%s] Task added to queue for: %s", time.Now().Format("15:04:05"), url)},
+		Logs:      []string{fmt.Sprintf("[%s] Task added to queue for: %s (Quality: %s)", time.Now().Format("15:04:05"), url, bitrate)},
 		CreatedAt: time.Now(),
 	}
 	m.tasks[id] = task
@@ -119,8 +124,8 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// Build output path template
 	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.{output-ext}")
 
-	// Command setup: spotdl download [URL] --bitrate 320k --threads 4 --lyrics genius synced --max-retries 5 --generate-lrc --output ...
-	cmd := exec.Command("spotdl", "download", task.URL, "--bitrate", "320k", "--threads", "4", "--lyrics", "genius", "synced", "--max-retries", "5", "--generate-lrc", "--output", outputTemplate)
+	// Command setup: spotdl download [URL] --bitrate [bitrate] --threads 4 --overwrite force --lyrics genius synced --max-retries 10 --generate-lrc --output ...
+	cmd := exec.Command("spotdl", "download", task.URL, "--bitrate", task.Bitrate, "--threads", "4", "--overwrite", "force", "--lyrics", "genius", "synced", "--max-retries", "10", "--generate-lrc", "--output", outputTemplate)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -153,6 +158,9 @@ func (m *Manager) runTask(task *DownloadTask) {
 
 			m.mu.Lock()
 			task.Logs = append(task.Logs, fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), line))
+			if len(task.Logs) > 200 {
+				task.Logs = task.Logs[len(task.Logs)-200:]
+			}
 			task.Progress = line
 			m.mu.Unlock()
 

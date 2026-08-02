@@ -17,7 +17,8 @@ type API struct {
 }
 
 type DownloadRequest struct {
-	URL string `json:"url" binding:"required"`
+	URL     string `json:"url" binding:"required"`
+	Bitrate string `json:"bitrate"`
 }
 
 func NewAPI(dl *downloader.Manager, sc *storage.Scanner) *API {
@@ -34,7 +35,7 @@ func (a *API) CreateDownload(c *gin.Context) {
 		return
 	}
 
-	task := a.downloader.AddTask(req.URL)
+	task := a.downloader.AddTask(req.URL, req.Bitrate)
 	c.JSON(http.StatusAccepted, gin.H{
 		"message": "Download task queued",
 		"task":    task,

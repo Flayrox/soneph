@@ -167,13 +167,13 @@ export default function Home() {
     };
   }, [fetchTasks, fetchFiles]);
 
-  const handleDownload = async (url: string) => {
+  const handleDownload = async (url: string, bitrate: string = "320k") => {
     setIsSubmitting(true);
     try {
       const res = await fetch(`${getApiUrl()}/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, bitrate }),
       });
 
       if (res.ok) {
@@ -181,7 +181,7 @@ export default function Home() {
         if (url.includes("/artist/")) {
           label = "Artist Discography Import Started";
         }
-        addToast("info", label, "Downloading 320kbps MP3 + Metadata + Clean Lyrics...");
+        addToast("info", label, `Downloading (${bitrate}) MP3 + Metadata + Clean Lyrics...`);
         fetchTasks();
       } else {
         const data = await res.json();
