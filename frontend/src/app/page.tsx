@@ -6,11 +6,14 @@ import { Header } from "@/components/Header";
 import { TrackList, DownloadedFile } from "@/components/TrackList";
 import { Player } from "@/components/Player";
 import { LyricsModal } from "@/components/LyricsModal";
+import { QueueDrawer } from "@/components/QueueDrawer";
 import { ToastContainer, ToastMessage } from "@/components/Toast";
 
 export interface DownloadTask {
   id: string;
   url: string;
+  bitrate?: string;
+  order?: string;
   status: "queued" | "downloading" | "completed" | "failed";
   progress: string;
   logs: string[];
@@ -25,6 +28,9 @@ export default function Home() {
   const [activeNav, setActiveNav] = useState<string>("songs");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Queue Drawer State
+  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
 
   // Audio Playback State
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
@@ -251,6 +257,14 @@ export default function Home() {
     handleTrackPlay(files[nextIdx].rel_path);
   };
 
+  const handleNavChange = (nav: string) => {
+    if (nav === "downloading") {
+      setIsQueueOpen(true);
+    } else {
+      setActiveNav(nav);
+    }
+  };
+
   const filteredFiles = files.filter(
     (f) =>
       f.title.toLowerCase().includes(activeFilter.toLowerCase()) ||
@@ -279,7 +293,7 @@ export default function Home() {
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
         activeNav={activeNav}
-        onNavChange={setActiveNav}
+        onNavChange={handleNavChange}
         activeTasksCount={activeTasksCount}
       />
 
@@ -291,6 +305,7 @@ export default function Home() {
           isLoading={isSubmitting}
           activeTasksCount={activeTasksCount}
           currentNav={activeNav}
+          onOpenQueue={() => setIsQueueOpen(true)}
         />
 
         {/* Scrollable Song Table List */}
@@ -316,6 +331,13 @@ export default function Home() {
         onOpenLyrics={() => setIsLyricsOpen(true)}
         audioRef={audioRef}
         onTimeUpdate={(t) => setCurrentTime(t)}
+      />
+
+      {/* l'app Musique Style Active Queue & Download Manager Drawer */}
+      <QueueDrawer
+        isOpen={isQueueOpen}
+        onClose={() => setIsQueueOpen(false)}
+        tasks={tasks}
       />
 
       {/* l'app Musique Karaoke Style Synchronized Lyrics Modal */}

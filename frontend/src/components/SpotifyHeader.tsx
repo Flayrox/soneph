@@ -8,6 +8,7 @@ interface HeaderProps {
   isLoading: boolean;
   activeTasksCount: number;
   currentNav: string;
+  onOpenQueue?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,6 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading,
   activeTasksCount,
   currentNav,
+  onOpenQueue,
 }) => {
   const [url, setUrl] = useState("");
   const [bitrate, setBitrate] = useState("320k");
@@ -106,10 +108,14 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Active Tasks Pill */}
       <div>
         {activeTasksCount > 0 && (
-          <div className="flex items-center gap-2 bg-apple-pink/20 text-apple-pink border border-apple-pink/30 px-3 py-1 rounded-full text-xs font-semibold animate-pulse">
+          <button
+            onClick={onOpenQueue}
+            className="flex items-center gap-2 bg-apple-pink/20 text-apple-pink hover:bg-apple-pink/30 border border-apple-pink/30 px-3 py-1 rounded-full text-xs font-semibold animate-pulse transition-all cursor-pointer shadow-md"
+            title="Click to view active download queue details"
+          >
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             <span>{activeTasksCount} Syncing...</span>
-          </div>
+          </button>
         )}
       </div>
     </header>
