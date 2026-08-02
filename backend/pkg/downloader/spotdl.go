@@ -3,10 +3,11 @@ package downloader
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -21,30 +22,33 @@ const (
 )
 
 type DownloadTask struct {
-	ID        string     `json:"id"`
-	URL       string     `json:"url"`
-	Bitrate   string     `json:"bitrate"`
-	Order     string     `json:"order"`
-	Status    TaskStatus `json:"status"`
-	Progress  string     `json:"progress"`
-	Logs      []string   `json:"logs"`
-	CreatedAt time.Time  `json:"created_at"`
-	Error     string     `json:"error,omitempty"`
+	ID             string     `json:"id"`
+	URL            string     `json:"url"`
+	Bitrate        string     `json:"bitrate"`
+	Order          string     `json:"order"`
+	Status         TaskStatus `json:"status"`
+	Progress       string     `json:"progress"`
+	CurrentTrack   string     `json:"current_track"`
+	TotalTracks    int        `json:"total_tracks"`
+	CompletedCount int        `json:"completed_count"`
+	RecentTracks   []string   `json:"recent_tracks"`
+	Logs           []string   `json:"logs"`
+	CreatedAt      time.Time  `json:"created_at"`
+	Error          string     `json:"error,omitempty"`
 }
 
 type Manager struct {
-	mu           sync.RWMutex
-	tasks        map[string]*DownloadTask
-	queue        chan *DownloadTask
-	downloadDir  string
-	broadcastFn  func(event string, data interface{})
+	mu          sync.RWMutex
+	tasks       map[string]*DownloadTask
+	queue       chan *DownloadTask
+	downloadDir string
+	broadcastFn func(event string, data interface{})
 }
 
 func NewManager(downloadDir string, broadcastFn func(event string, data interface{})) *Manager {
 	if downloadDir == "" {
 		downloadDir = "./downloads"
 	}
-	// Ensure directory exists
 	_ = os.MkdirAll(downloadDir, 0755)
 
 	m := &Manager{
@@ -54,7 +58,7 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 		broadcastFn: broadcastFn,
 	}
 
-	// Spawn 8 concurrent worker threads to process download tasks in parallel
+	// 8 worker threads for parallel downloads
 	for i := 0; i < 8; i++ {
 		go m.worker()
 	}
@@ -71,14 +75,15 @@ func (m *Manager) AddTask(url string, bitrate string, order string) *DownloadTas
 	m.mu.Lock()
 	id := fmt.Sprintf("task_%d", time.Now().UnixNano())
 	task := &DownloadTask{
-		ID:        id,
-		URL:       url,
-		Bitrate:   bitrate,
-		Order:     order,
-		Status:    StatusQueued,
-		Progress:  "In queue...",
-		Logs:      []string{fmt.Sprintf("[%s] Task added for: %s (Quality: %s, Order: %s)", time.Now().Format("15:04:05"), url, bitrate, order)},
-		CreatedAt: time.Now(),
+		ID:           id,
+		URL:          url,
+		Bitrate:      bitrate,
+		Order:        order,
+		Status:       StatusQueued,
+		Progress:     "In queue...",
+		RecentTracks: []string{},
+		Logs:         []string{fmt.Sprintf("[%s] Task queued for: %s (Quality: %s, Order: %s)", time.Now().Format("15:04:05"), url, bitrate, order)},
+		CreatedAt:    time.Now(),
 	}
 	m.tasks[id] = task
 	m.mu.Unlock()
@@ -121,23 +126,18 @@ func (m *Manager) worker() {
 func (m *Manager) runTask(task *DownloadTask) {
 	m.mu.Lock()
 	task.Status = StatusDownloading
-	task.Progress = "Starting spotdl..."
+	task.Progress = "Initializing playlist engine..."
 	task.Logs = append(task.Logs, fmt.Sprintf("[%s] Starting download...", time.Now().Format("15:04:05")))
 	m.mu.Unlock()
 	m.notifyUpdate(task)
 
-	// Build clean output path template ({artist}/{album}/{title}.mp3)
 	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.mp3")
 
-	// Smart Highest Quality Protection:
-	// If bitrate is 320k (HQ), force overwrite lower quality files.
-	// If bitrate is lower (128k/192k), skip overwriting existing higher quality files.
 	overwriteFlag := "skip"
 	if task.Bitrate == "320k" {
 		overwriteFlag = "force"
 	}
 
-	// Command setup args
 	cmdArgs := []string{
 		"download", task.URL,
 		"--bitrate", task.Bitrate,
@@ -160,78 +160,99 @@ func (m *Manager) runTask(task *DownloadTask) {
 		m.failTask(task, fmt.Sprintf("Failed to open stdout pipe: %v", err))
 		return
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		m.failTask(task, fmt.Sprintf("Failed to open stderr pipe: %v", err))
-		return
-	}
+	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
-		m.failTask(task, fmt.Sprintf("Failed to start spotdl command: %v", err))
+		m.failTask(task, fmt.Sprintf("Failed to start spotdl: %v", err))
 		return
 	}
 
-	// Read outputs in parallel
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// Regex patterns for real-time playlist & track parsing
+	reTotal := regexp.MustCompile(`Found\s+(\d+)\s+songs`)
+	reDownloaded := regexp.MustCompile(`Downloaded\s+"([^"]+)"`)
+	reSkipping := regexp.MustCompile(`Skipping\s+([^(]+)`)
+	reDownloading := regexp.MustCompile(`Downloading\s+"([^"]+)"`)
 
-	scanOutput := func(r io.Reader) {
-		defer wg.Done()
-		scanner := bufio.NewScanner(r)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "" {
-				continue
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		m.mu.Lock()
+
+		// Keep logs bounded
+		if len(task.Logs) > 300 {
+			task.Logs = task.Logs[len(task.Logs)-250:]
+		}
+		task.Logs = append(task.Logs, line)
+		task.Progress = line
+
+		// Parse Total Songs count in playlist
+		if match := reTotal.FindStringSubmatch(line); len(match) > 1 {
+			if count, err := strconv.Atoi(match[1]); err == nil {
+				task.TotalTracks = count
 			}
+		}
 
-			m.mu.Lock()
-			task.Logs = append(task.Logs, fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), line))
-			if len(task.Logs) > 200 {
-				task.Logs = task.Logs[len(task.Logs)-200:]
+		// Parse Currently Downloading track
+		if match := reDownloading.FindStringSubmatch(line); len(match) > 1 {
+			task.CurrentTrack = match[1]
+		}
+
+		// Parse Completed track
+		if match := reDownloaded.FindStringSubmatch(line); len(match) > 1 {
+			songName := match[1]
+			task.CurrentTrack = songName
+			task.CompletedCount++
+			// Prepend to recent tracks
+			task.RecentTracks = append([]string{songName}, task.RecentTracks...)
+			if len(task.RecentTracks) > 50 {
+				task.RecentTracks = task.RecentTracks[:50]
 			}
-			task.Progress = line
-			m.mu.Unlock()
+		}
 
-			m.notifyUpdate(task)
+		// Parse Skipped track
+		if match := reSkipping.FindStringSubmatch(line); len(match) > 1 {
+			songName := match[1]
+			task.CompletedCount++
+			task.RecentTracks = append([]string{songName + " (already downloaded)"}, task.RecentTracks...)
+			if len(task.RecentTracks) > 50 {
+				task.RecentTracks = task.RecentTracks[:50]
+			}
+		}
+
+		m.mu.Unlock()
+		m.notifyUpdate(task)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		m.mu.RLock()
+		alreadyHasRecent := len(task.RecentTracks) > 0 || task.CompletedCount > 0
+		m.mu.RUnlock()
+
+		if !alreadyHasRecent {
+			m.failTask(task, fmt.Sprintf("spotdl process exited with error: %v", err))
+			return
 		}
 	}
 
-	go scanOutput(stdout)
-	go scanOutput(stderr)
-
-	wg.Wait()
-	err = cmd.Wait()
+	// Post-process lyrics embedding
+	embedCmd := exec.Command("python3", "/app/embed_lyrics.py", m.downloadDir)
+	_ = embedCmd.Run()
 
 	m.mu.Lock()
-	if err != nil {
-		task.Status = StatusFailed
-		task.Error = err.Error()
-		task.Progress = "Download failed"
-		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Error: %v", time.Now().Format("15:04:05"), err))
-	} else {
-		// Run post-processing to embed ID3 USLT lyrics tag into MP3 for l'app Musique / iTunes
-		embedCmd := exec.Command("python3", "/app/embed_lyrics.py", m.downloadDir)
-		_ = embedCmd.Run()
-
-		task.Status = StatusCompleted
-		task.Progress = "Download finished & ready for sync!"
-		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Completed successfully & embedded l'app Musique ID3 lyrics!", time.Now().Format("15:04:05")))
-	}
+	task.Status = StatusCompleted
+	task.Progress = "Download and metadata sync complete"
+	task.Logs = append(task.Logs, fmt.Sprintf("[%s] All tracks downloaded & synced!", time.Now().Format("15:04:05")))
 	m.mu.Unlock()
 
 	m.notifyUpdate(task)
-	// Also trigger file list refresh event
-	if m.broadcastFn != nil {
-		m.broadcastFn("downloads_changed", nil)
-	}
 }
 
-func (m *Manager) failTask(task *DownloadTask, errMsg string) {
+func (m *Manager) failTask(task *DownloadTask, errorMsg string) {
 	m.mu.Lock()
 	task.Status = StatusFailed
-	task.Error = errMsg
-	task.Progress = errMsg
-	task.Logs = append(task.Logs, fmt.Sprintf("[%s] Error: %s", time.Now().Format("15:04:05"), errMsg))
+	task.Error = errorMsg
+	task.Progress = fmt.Sprintf("Error: %s", errorMsg)
+	task.Logs = append(task.Logs, fmt.Sprintf("[%s] ERROR: %s", time.Now().Format("15:04:05"), errorMsg))
 	m.mu.Unlock()
 	m.notifyUpdate(task)
 }

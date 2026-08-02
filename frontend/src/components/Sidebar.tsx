@@ -128,7 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   {item.badge !== undefined && (
                     <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
                         isSyncing
                           ? "bg-apple-pink text-white font-bold"
                           : "bg-white/10 text-zinc-300"
