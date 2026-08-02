@@ -14,8 +14,9 @@ FROM python:3.11-alpine
 # Install FFmpeg & build essentials needed by spotdl
 RUN apk add --no-cache ffmpeg git gcc musl-dev libffi-dev
 
-# Install spotdl CLI
+# Install spotdl CLI & Deno engine for YouTube
 RUN pip install --no-cache-dir spotdl
+RUN spotdl --download-deno
 
 WORKDIR /app
 
