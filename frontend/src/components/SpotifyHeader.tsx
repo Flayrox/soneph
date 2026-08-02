@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Download, Loader2, Search, Zap } from "lucide-react";
+import { Download, Loader2, Search, Zap, ArrowDownUp } from "lucide-react";
 
 interface HeaderProps {
-  onDownload: (url: string, bitrate: string) => Promise<void>;
+  onDownload: (url: string, bitrate: string, order: string) => Promise<void>;
   isLoading: boolean;
   activeTasksCount: number;
   currentNav: string;
@@ -18,11 +18,12 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [url, setUrl] = useState("");
   const [bitrate, setBitrate] = useState("320k");
+  const [order, setOrder] = useState("reverse");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim() || isLoading) return;
-    await onDownload(url.trim(), bitrate);
+    await onDownload(url.trim(), bitrate, order);
     setUrl("");
   };
 
@@ -48,8 +49,21 @@ export const Header: React.FC<HeaderProps> = ({
         <h1 className="text-lg font-bold text-white tracking-tight">{getNavTitle()}</h1>
       </div>
 
-      {/* Center Download & Quality Selector Pill */}
-      <div className="flex items-center gap-3">
+      {/* Center Download, Priority Order & Quality Selector */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Download Order Priority Dropdown */}
+        <div className="relative flex items-center bg-[#242428] border border-white/10 rounded-full px-2.5 py-1 text-xs text-white">
+          <ArrowDownUp className="w-3.5 h-3.5 text-apple-pink mr-1.5" />
+          <select
+            value={order}
+            onChange={(e) => setOrder(e.target.value)}
+            className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer pr-1"
+          >
+            <option value="reverse" className="bg-[#242428] text-white">Newest Added First</option>
+            <option value="normal" className="bg-[#242428] text-white">Original Playlist Order</option>
+          </select>
+        </div>
+
         {/* Bitrate Selector Dropdown */}
         <div className="relative flex items-center bg-[#242428] border border-white/10 rounded-full px-2.5 py-1 text-xs text-white">
           <Zap className="w-3.5 h-3.5 text-apple-pink mr-1.5" />
@@ -58,19 +72,20 @@ export const Header: React.FC<HeaderProps> = ({
             onChange={(e) => setBitrate(e.target.value)}
             className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer pr-1"
           >
-            <option value="320k" className="bg-[#242428] text-white">320 kbps (HQ • 10MB/song)</option>
-            <option value="192k" className="bg-[#242428] text-white">192 kbps (Balanced • 5MB/song)</option>
-            <option value="128k" className="bg-[#242428] text-white">128 kbps (Fast • 2.5MB/song)</option>
+            <option value="320k" className="bg-[#242428] text-white">320 kbps (HQ • 10MB)</option>
+            <option value="192k" className="bg-[#242428] text-white">192 kbps (Balanced • 5MB)</option>
+            <option value="128k" className="bg-[#242428] text-white">128 kbps (Fast • 2.5MB)</option>
           </select>
         </div>
 
-        <form onSubmit={handleSubmit} className="relative flex items-center w-72 sm:w-80">
+        {/* Import Input */}
+        <form onSubmit={handleSubmit} className="relative flex items-center w-64 sm:w-72">
           <Search className="w-4 h-4 absolute left-3.5 text-apple-subtext" />
           <input
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste  Track, Playlist or Artist URL..."
+            placeholder="Paste  Link..."
             className="w-full bg-[#242428] border border-white/10 focus:border-apple-pink rounded-full py-1.5 pl-10 pr-24 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all shadow-inner"
           />
           <button

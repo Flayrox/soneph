@@ -15,6 +15,7 @@ import {
   Heart,
   Pin,
   FolderCheck,
+  Loader2,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -23,6 +24,7 @@ interface SidebarProps {
   onFilterChange: (filter: string) => void;
   activeNav: string;
   onNavChange: (nav: string) => void;
+  activeTasksCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -31,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onFilterChange,
   activeNav,
   onNavChange,
+  activeTasksCount = 0,
 }) => {
   const libraryItems = [
     { id: "pins", label: "Pins", icon: Pin },
@@ -40,6 +43,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "songs", label: "Songs", icon: Music, badge: totalFiles },
     { id: "music_videos", label: "Music Videos", icon: Video },
   ];
+
+  if (activeTasksCount > 0) {
+    libraryItems.unshift({
+      id: "downloading",
+      label: "Active Syncs",
+      icon: Loader2,
+      badge: activeTasksCount,
+    });
+  }
 
   const playlistItems = [
     { id: "all_playlists", label: "All Playlists", icon: ListMusic },
@@ -96,6 +108,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {libraryItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeNav === item.id;
+              const isSyncing = item.id === "downloading";
+
               return (
                 <button
                   key={item.id}
@@ -103,15 +117,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors ${
                     isActive
                       ? "bg-apple-pink text-white font-semibold shadow-sm"
+                      : isSyncing
+                      ? "bg-apple-pink/15 text-apple-pink font-semibold border border-apple-pink/30 animate-pulse"
                       : "text-zinc-300 hover:bg-white/5"
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Icon className="w-4 h-4" />
+                    <Icon className={`w-4 h-4 ${isSyncing ? "animate-spin text-apple-pink" : ""}`} />
                     <span>{item.label}</span>
                   </div>
                   {item.badge !== undefined && (
-                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full font-mono">
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
+                        isSyncing
+                          ? "bg-apple-pink text-white font-bold"
+                          : "bg-white/10 text-zinc-300"
+                      }`}
+                    >
                       {item.badge}
                     </span>
                   )}

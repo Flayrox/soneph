@@ -24,6 +24,7 @@ type DownloadTask struct {
 	ID        string     `json:"id"`
 	URL       string     `json:"url"`
 	Bitrate   string     `json:"bitrate"`
+	Order     string     `json:"order"`
 	Status    TaskStatus `json:"status"`
 	Progress  string     `json:"progress"`
 	Logs      []string   `json:"logs"`
@@ -60,9 +61,12 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 	return m
 }
 
-func (m *Manager) AddTask(url string, bitrate string) *DownloadTask {
+func (m *Manager) AddTask(url string, bitrate string, order string) *DownloadTask {
 	if bitrate == "" {
 		bitrate = "320k"
+	}
+	if order == "" {
+		order = "normal"
 	}
 	m.mu.Lock()
 	id := fmt.Sprintf("task_%d", time.Now().UnixNano())
@@ -70,9 +74,10 @@ func (m *Manager) AddTask(url string, bitrate string) *DownloadTask {
 		ID:        id,
 		URL:       url,
 		Bitrate:   bitrate,
+		Order:     order,
 		Status:    StatusQueued,
 		Progress:  "In queue...",
-		Logs:      []string{fmt.Sprintf("[%s] Task added to queue for: %s (Quality: %s)", time.Now().Format("15:04:05"), url, bitrate)},
+		Logs:      []string{fmt.Sprintf("[%s] Task added for: %s (Quality: %s, Order: %s)", time.Now().Format("15:04:05"), url, bitrate, order)},
 		CreatedAt: time.Now(),
 	}
 	m.tasks[id] = task
@@ -132,8 +137,23 @@ func (m *Manager) runTask(task *DownloadTask) {
 		overwriteFlag = "force"
 	}
 
-	// Command setup: spotdl download [URL] --bitrate [bitrate] --threads 8 --overwrite [force|skip] ...
-	cmd := exec.Command("spotdl", "download", task.URL, "--bitrate", task.Bitrate, "--threads", "8", "--overwrite", overwriteFlag, "--lyrics", "genius", "synced", "--max-retries", "10", "--generate-lrc", "--output", outputTemplate)
+	// Command setup args
+	cmdArgs := []string{
+		"download", task.URL,
+		"--bitrate", task.Bitrate,
+		"--threads", "8",
+		"--overwrite", overwriteFlag,
+		"--lyrics", "genius", "synced",
+		"--max-retries", "10",
+		"--generate-lrc",
+		"--output", outputTemplate,
+	}
+
+	if task.Order == "reverse" {
+		cmdArgs = append(cmdArgs, "--reverse")
+	}
+
+	cmd := exec.Command("spotdl", cmdArgs...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

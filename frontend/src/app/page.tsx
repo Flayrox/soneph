@@ -167,13 +167,13 @@ export default function Home() {
     };
   }, [fetchTasks, fetchFiles]);
 
-  const handleDownload = async (url: string, bitrate: string = "320k") => {
+  const handleDownload = async (url: string, bitrate: string = "320k", order: string = "reverse") => {
     setIsSubmitting(true);
     try {
       const res = await fetch(`${getApiUrl()}/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, bitrate }),
+        body: JSON.stringify({ url, bitrate, order }),
       });
 
       if (res.ok) {
@@ -181,7 +181,8 @@ export default function Home() {
         if (url.includes("/artist/")) {
           label = "Artist Discography Import Started";
         }
-        addToast("info", label, `Downloading (${bitrate}) MP3 + Metadata + Clean Lyrics...`);
+        const orderText = order === "reverse" ? "Newest Added First" : "Original Order";
+        addToast("info", label, `Downloading (${bitrate}, ${orderText}) MP3 + Metadata + Clean Lyrics...`);
         fetchTasks();
       } else {
         const data = await res.json();
@@ -279,6 +280,7 @@ export default function Home() {
         onFilterChange={setActiveFilter}
         activeNav={activeNav}
         onNavChange={setActiveNav}
+        activeTasksCount={activeTasksCount}
       />
 
       {/* Main l'app Musique Content Panel */}
