@@ -53,8 +53,8 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 		broadcastFn: broadcastFn,
 	}
 
-	// Spawn 4 concurrent worker threads to process download tasks in parallel
-	for i := 0; i < 4; i++ {
+	// Spawn 8 concurrent worker threads to process download tasks in parallel
+	for i := 0; i < 8; i++ {
 		go m.worker()
 	}
 	return m
@@ -124,8 +124,16 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// Build output path template
 	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.{output-ext}")
 
-	// Command setup: spotdl download [URL] --bitrate [bitrate] --threads 4 --overwrite force --lyrics genius synced --max-retries 10 --generate-lrc --output ...
-	cmd := exec.Command("spotdl", "download", task.URL, "--bitrate", task.Bitrate, "--threads", "4", "--overwrite", "force", "--lyrics", "genius", "synced", "--max-retries", "10", "--generate-lrc", "--output", outputTemplate)
+	// Smart Highest Quality Protection:
+	// If bitrate is 320k (HQ), force overwrite lower quality files.
+	// If bitrate is lower (128k/192k), skip overwriting existing higher quality files.
+	overwriteFlag := "skip"
+	if task.Bitrate == "320k" {
+		overwriteFlag = "force"
+	}
+
+	// Command setup: spotdl download [URL] --bitrate [bitrate] --threads 8 --overwrite [force|skip] ...
+	cmd := exec.Command("spotdl", "download", task.URL, "--bitrate", task.Bitrate, "--threads", "8", "--overwrite", overwriteFlag, "--lyrics", "genius", "synced", "--max-retries", "10", "--generate-lrc", "--output", outputTemplate)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
