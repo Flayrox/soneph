@@ -126,8 +126,8 @@ func (m *Manager) runTask(task *DownloadTask) {
 	m.mu.Unlock()
 	m.notifyUpdate(task)
 
-	// Build output path template
-	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.{output-ext}")
+	// Build clean output path template ({artist}/{album}/{title}.mp3)
+	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.mp3")
 
 	// Smart Highest Quality Protection:
 	// If bitrate is 320k (HQ), force overwrite lower quality files.
