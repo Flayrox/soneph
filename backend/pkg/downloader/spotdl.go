@@ -141,7 +141,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 	cmdArgs := []string{
 		"download", task.URL,
 		"--bitrate", task.Bitrate,
-		"--threads", "8",
+		"--threads", "16",
 		"--overwrite", overwriteFlag,
 		"--lyrics", "genius", "synced",
 		"--max-retries", "10",
