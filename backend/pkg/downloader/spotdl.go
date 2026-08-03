@@ -180,7 +180,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--threads", "16",
 		"--overwrite", overwriteFlag,
 		"--lyrics", "genius", "synced",
-		"--max-retries", "10",
+		"--max-retries", "2",
 		"--generate-lrc",
 		"--output", outputTemplate,
 	}
@@ -250,13 +250,22 @@ func (m *Manager) runTask(task *DownloadTask) {
 
 	if err := cmd.Wait(); err != nil {
 		m.mu.RLock()
-		alreadyHasRecent := len(task.RecentTracks) > 0 || task.CompletedCount > 0
+		// Don't fail the whole task if:
+		// - Pre-filter already counted some tracks as done, OR
+		// - At least one track was actually downloaded/skipped during this run
+		// spotdl exits non-zero when even a single track can't be found (LookupError),
+		// but that shouldn't cancel the entire 1000-track playlist.
+		hasSomeProgress := task.CompletedCount > 0 || task.TotalTracks > 0
 		m.mu.RUnlock()
 
-		if !alreadyHasRecent {
+		if !hasSomeProgress {
 			m.failTask(task, fmt.Sprintf("spotdl process exited with error: %v", err))
 			return
 		}
+		// Partial completion: log the error but continue to completion
+		m.mu.Lock()
+		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Warning: spotdl exited with code %v (some tracks may have failed to download — this is normal)", time.Now().Format("15:04:05"), err))
+		m.mu.Unlock()
 	}
 
 	embedCmd := exec.Command("python3", "/app/embed_lyrics.py", m.downloadDir)
