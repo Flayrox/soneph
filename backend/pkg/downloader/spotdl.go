@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,8 +59,8 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 		broadcastFn: broadcastFn,
 	}
 
-	// 8 worker threads for parallel downloads
-	for i := 0; i < 8; i++ {
+	// 16 worker threads for parallel downloads
+	for i := 0; i < 16; i++ {
 		go m.worker()
 	}
 	return m
@@ -126,10 +127,45 @@ func (m *Manager) worker() {
 func (m *Manager) runTask(task *DownloadTask) {
 	m.mu.Lock()
 	task.Status = StatusDownloading
-	task.Progress = "Initializing playlist engine..."
-	task.Logs = append(task.Logs, fmt.Sprintf("[%s] Starting download...", time.Now().Format("15:04:05")))
+	task.Progress = "Instant scanning disk for existing songs..."
+	task.Logs = append(task.Logs, fmt.Sprintf("[%s] Fast scanning disk for duplicates...", time.Now().Format("15:04:05")))
 	m.mu.Unlock()
 	m.notifyUpdate(task)
+
+	// Instant Pre-Filter Execution in Python
+	ffCmd := exec.Command("python3", "/app/fast_filter.py", m.downloadDir, task.URL)
+	ffOutput, ffErr := ffCmd.Output()
+	if ffErr == nil {
+		var ffResult struct {
+			FastFilterApplied bool     `json:"fast_filter_applied"`
+			TotalTracks       int      `json:"total_tracks"`
+			AlreadyDownloaded int      `json:"already_downloaded_count"`
+			MissingCount      int      `json:"missing_count"`
+			SkippedTracks     []string `json:"skipped_tracks"`
+			MissingQueries    []string `json:"missing_queries"`
+		}
+		if jsonErr := json.Unmarshal(ffOutput, &ffResult); jsonErr == nil && ffResult.FastFilterApplied {
+			m.mu.Lock()
+			task.TotalTracks = ffResult.TotalTracks
+			task.CompletedCount = ffResult.AlreadyDownloaded
+			for _, s := range ffResult.SkippedTracks {
+				task.RecentTracks = append([]string{s + " (instant skip)"}, task.RecentTracks...)
+			}
+			task.Logs = append(task.Logs, fmt.Sprintf("[%s] Fast filter complete: %d songs already on disk, %d missing.", time.Now().Format("15:04:05"), ffResult.AlreadyDownloaded, ffResult.MissingCount))
+			m.mu.Unlock()
+			m.notifyUpdate(task)
+
+			if ffResult.MissingCount == 0 {
+				m.mu.Lock()
+				task.Status = StatusCompleted
+				task.Progress = "All tracks verified present on disk (0s instant skip)"
+				task.Logs = append(task.Logs, fmt.Sprintf("[%s] All %d tracks present on disk!", time.Now().Format("15:04:05"), ffResult.TotalTracks))
+				m.mu.Unlock()
+				m.notifyUpdate(task)
+				return
+			}
+		}
+	}
 
 	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.mp3")
 
@@ -163,7 +199,6 @@ func (m *Manager) runTask(task *DownloadTask) {
 		return
 	}
 
-	// Regex patterns for real-time playlist & track parsing
 	reTotal := regexp.MustCompile(`Found\s+(\d+)\s+songs`)
 	reDownloaded := regexp.MustCompile(`Downloaded\s+"([^"]+)"`)
 	reSkipping := regexp.MustCompile(`Skipping\s+([^(]+)`)
@@ -174,38 +209,32 @@ func (m *Manager) runTask(task *DownloadTask) {
 		line := scanner.Text()
 		m.mu.Lock()
 
-		// Keep logs bounded
 		if len(task.Logs) > 300 {
 			task.Logs = task.Logs[len(task.Logs)-250:]
 		}
 		task.Logs = append(task.Logs, line)
 		task.Progress = line
 
-		// Parse Total Songs count in playlist
 		if match := reTotal.FindStringSubmatch(line); len(match) > 1 {
 			if count, err := strconv.Atoi(match[1]); err == nil {
 				task.TotalTracks = count
 			}
 		}
 
-		// Parse Currently Downloading track
 		if match := reDownloading.FindStringSubmatch(line); len(match) > 1 {
 			task.CurrentTrack = match[1]
 		}
 
-		// Parse Completed track
 		if match := reDownloaded.FindStringSubmatch(line); len(match) > 1 {
 			songName := match[1]
 			task.CurrentTrack = songName
 			task.CompletedCount++
-			// Prepend to recent tracks
 			task.RecentTracks = append([]string{songName}, task.RecentTracks...)
 			if len(task.RecentTracks) > 50 {
 				task.RecentTracks = task.RecentTracks[:50]
 			}
 		}
 
-		// Parse Skipped track
 		if match := reSkipping.FindStringSubmatch(line); len(match) > 1 {
 			songName := match[1]
 			task.CompletedCount++
@@ -230,7 +259,6 @@ func (m *Manager) runTask(task *DownloadTask) {
 		}
 	}
 
-	// Post-process lyrics embedding
 	embedCmd := exec.Command("python3", "/app/embed_lyrics.py", m.downloadDir)
 	_ = embedCmd.Run()
 

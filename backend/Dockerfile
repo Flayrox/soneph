@@ -22,6 +22,7 @@ WORKDIR /app
 # Copy binary and post-processing scripts
 COPY --from=builder /app/soneph-server /app/soneph-server
 COPY embed_lyrics.py /app/embed_lyrics.py
+COPY fast_filter.py /app/fast_filter.py
 
 # Create downloads directory
 RUN mkdir -p /app/downloads
