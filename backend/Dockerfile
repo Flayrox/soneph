@@ -23,6 +23,11 @@ WORKDIR /app
 COPY --from=builder /app/soneph-server /app/soneph-server
 COPY embed_lyrics.py /app/embed_lyrics.py
 COPY fast_filter.py /app/fast_filter.py
+COPY patch_lyrics_timeout.py /app/patch_lyrics_timeout.py
+
+# Patch spotdl's synced lyrics provider to add a 6-second timeout
+# so Musixmatch rate-limiting never stalls ALL downloads in the queue.
+RUN python3 /app/patch_lyrics_timeout.py
 
 # Create downloads directory
 RUN mkdir -p /app/downloads

@@ -179,11 +179,11 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--bitrate", task.Bitrate,
 		"--threads", "16",
 		"--overwrite", overwriteFlag,
-		// Only use Genius for lyrics — "synced" uses Musixmatch which rate-limits
-		// and blocks the entire asyncio event loop, stalling ALL downloads.
-		// --generate-lrc requires "synced" provider so it's also removed.
-		"--lyrics", "genius",
+		// synced = Musixmatch (precise time-synced lyrics) + genius as fallback.
+		// The 6s timeout patch in Dockerfile ensures Musixmatch never stalls the queue.
+		"--lyrics", "synced", "genius",
 		"--max-retries", "0",
+		"--generate-lrc",
 		"--output", outputTemplate,
 	}
 
