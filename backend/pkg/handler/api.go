@@ -1,19 +1,37 @@
 package handler
 
 import (
+	"bufio"
+	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/storage"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 type API struct {
-	downloader *downloader.Manager
-	scanner    *storage.Scanner
+	downloader  *downloader.Manager
+	scanner     *storage.Scanner
+	lyricsJobMu sync.Mutex
+	lyricsJob   *lyricsRetryJob
+}
+
+type lyricsRetryJob struct {
+	Status    string    `json:"status"` // "running" | "done" | "idle"
+	StartedAt time.Time `json:"started_at"`
+	Total     int       `json:"total"`
+	Done      int       `json:"done"`
+	Success   int       `json:"success"`
+	Failed    int       `json:"failed"`
+	Current   string    `json:"current"`
+	Logs      []string  `json:"logs"`
 }
 
 type DownloadRequest struct {
@@ -26,6 +44,7 @@ func NewAPI(dl *downloader.Manager, sc *storage.Scanner) *API {
 	return &API{
 		downloader: dl,
 		scanner:    sc,
+		lyricsJob:  &lyricsRetryJob{Status: "idle"},
 	}
 }
 
@@ -106,3 +125,134 @@ func (a *API) GetLyrics(c *gin.Context) {
 		"lyrics": string(content),
 	})
 }
+
+// ScanMissingLyrics returns all MP3 files that don't have a .lrc sidecar file.
+func (a *API) ScanMissingLyrics(c *gin.Context) {
+	cmd := exec.Command("python3", "/app/lyrics_retry.py", a.scanner.DownloadDir, "--scan-only")
+	output, err := cmd.Output()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var scanComplete map[string]interface{}
+	var missingList map[string]interface{}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var evt map[string]interface{}
+		if json.Unmarshal([]byte(line), &evt) != nil {
+			continue
+		}
+		if evt["type"] == "scan_complete" {
+			scanComplete = evt
+		}
+		if evt["type"] == "missing_list" {
+			missingList = evt
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"scan":    scanComplete,
+		"missing": missingList,
+	})
+}
+
+// RetryLyrics launches a background job to fetch synced lyrics for all MP3s missing .lrc files.
+func (a *API) RetryLyrics(c *gin.Context) {
+	a.lyricsJobMu.Lock()
+	if a.lyricsJob.Status == "running" {
+		a.lyricsJobMu.Unlock()
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "A lyrics retry job is already running",
+			"job":   a.lyricsJob,
+		})
+		return
+	}
+	a.lyricsJob = &lyricsRetryJob{
+		Status:    "running",
+		StartedAt: time.Now(),
+		Logs:      []string{},
+	}
+	a.lyricsJobMu.Unlock()
+
+	go func() {
+		cmd := exec.Command("python3", "/app/lyrics_retry.py", a.scanner.DownloadDir)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			a.lyricsJobMu.Lock()
+			a.lyricsJob.Status = "done"
+			a.lyricsJob.Logs = append(a.lyricsJob.Logs, "Error: "+err.Error())
+			a.lyricsJobMu.Unlock()
+			return
+		}
+		cmd.Stderr = cmd.Stdout
+		_ = cmd.Start()
+
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			var evt map[string]interface{}
+			if json.Unmarshal([]byte(line), &evt) != nil {
+				continue
+			}
+			a.lyricsJobMu.Lock()
+			evtType, _ := evt["type"].(string)
+			switch evtType {
+			case "scan_complete":
+				if v, ok := evt["missing_lrc"].(float64); ok {
+					a.lyricsJob.Total = int(v)
+				}
+			case "retrying":
+				if name, ok := evt["filename"].(string); ok {
+					a.lyricsJob.Current = name
+				}
+				if v, ok := evt["index"].(float64); ok {
+					a.lyricsJob.Done = int(v)
+				}
+			case "success":
+				a.lyricsJob.Success++
+				if name, ok := evt["filename"].(string); ok {
+					a.lyricsJob.Logs = append([]string{"✅ " + name}, a.lyricsJob.Logs...)
+				}
+			case "failed":
+				a.lyricsJob.Failed++
+				if name, ok := evt["filename"].(string); ok {
+					a.lyricsJob.Logs = append([]string{"❌ " + name}, a.lyricsJob.Logs...)
+				}
+			case "done":
+				if v, ok := evt["success"].(float64); ok {
+					a.lyricsJob.Success = int(v)
+				}
+				if v, ok := evt["failed"].(float64); ok {
+					a.lyricsJob.Failed = int(v)
+				}
+			}
+			if len(a.lyricsJob.Logs) > 100 {
+				a.lyricsJob.Logs = a.lyricsJob.Logs[:100]
+			}
+			a.lyricsJobMu.Unlock()
+		}
+
+		_ = cmd.Wait()
+		a.lyricsJobMu.Lock()
+		a.lyricsJob.Status = "done"
+		a.lyricsJobMu.Unlock()
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message": "Lyrics retry job started",
+		"job":     a.lyricsJob,
+	})
+}
+
+// GetLyricsJobStatus returns the current state of the lyrics retry job.
+func (a *API) GetLyricsJobStatus(c *gin.Context) {
+	a.lyricsJobMu.Lock()
+	defer a.lyricsJobMu.Unlock()
+	c.JSON(http.StatusOK, gin.H{"job": a.lyricsJob})
+}
+

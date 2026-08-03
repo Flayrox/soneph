@@ -23,6 +23,7 @@ WORKDIR /app
 COPY --from=builder /app/soneph-server /app/soneph-server
 COPY embed_lyrics.py /app/embed_lyrics.py
 COPY fast_filter.py /app/fast_filter.py
+COPY lyrics_retry.py /app/lyrics_retry.py
 COPY patch_lyrics_timeout.py /app/patch_lyrics_timeout.py
 
 # Patch spotdl's synced lyrics provider to add a 6-second timeout

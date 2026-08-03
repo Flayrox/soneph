@@ -45,6 +45,9 @@ func main() {
 		apiGroup.DELETE("/downloads", api.DeleteDownload)
 		apiGroup.GET("/stream", api.StreamFile)
 		apiGroup.GET("/lyrics", api.GetLyrics)
+		apiGroup.GET("/lyrics/missing", api.ScanMissingLyrics)
+		apiGroup.POST("/lyrics/retry", api.RetryLyrics)
+		apiGroup.GET("/lyrics/retry", api.GetLyricsJobStatus)
 		apiGroup.GET("/ws", wsHub.HandleWS)
 	}
 

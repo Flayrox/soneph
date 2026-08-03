@@ -17,6 +17,7 @@ import {
   FolderCheck,
   Loader2,
 } from "lucide-react";
+import { LyricsRetryPanel } from "./LyricsRetryPanel";
 
 interface SidebarProps {
   totalFiles: number;
@@ -187,6 +188,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
         </div>
+      </div>
+
+      {/* Lyrics Retry Panel */}
+      <div className="px-1 pb-2">
+        <LyricsRetryPanel />
       </div>
 
       {/* Syncthing P2P iCloud Status Footer */}
