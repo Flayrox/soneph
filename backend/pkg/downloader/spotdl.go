@@ -180,7 +180,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--threads", "16",
 		"--overwrite", overwriteFlag,
 		"--lyrics", "genius", "synced",
-		"--max-retries", "2",
+		"--max-retries", "0",
 		"--generate-lrc",
 		"--output", outputTemplate,
 	}
