@@ -149,10 +149,6 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--output", outputTemplate,
 	}
 
-	if task.Order == "reverse" {
-		cmdArgs = append(cmdArgs, "--reverse")
-	}
-
 	cmd := exec.Command("spotdl", cmdArgs...)
 
 	stdout, err := cmd.StdoutPipe()
