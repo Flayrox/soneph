@@ -179,9 +179,11 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--bitrate", task.Bitrate,
 		"--threads", "16",
 		"--overwrite", overwriteFlag,
-		"--lyrics", "genius", "synced",
+		// Only use Genius for lyrics — "synced" uses Musixmatch which rate-limits
+		// and blocks the entire asyncio event loop, stalling ALL downloads.
+		// --generate-lrc requires "synced" provider so it's also removed.
+		"--lyrics", "genius",
 		"--max-retries", "0",
-		"--generate-lrc",
 		"--output", outputTemplate,
 	}
 
