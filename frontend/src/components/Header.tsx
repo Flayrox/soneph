@@ -32,7 +32,9 @@ export const Header: React.FC<HeaderProps> = ({
             <Terminal className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-mono font-bold text-sm text-white tracking-tight">soneph</span>
+            <span className="font-mono font-bold text-sm tracking-tight text-white">
+              son<span className="text-rose-500 font-extrabold">ephe</span>
+            </span>
             <span className="text-[10px] font-mono text-zinc-400 bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/60">
               v1.2.0-dev
             </span>

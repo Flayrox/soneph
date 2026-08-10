@@ -16,11 +16,13 @@ import {
   Pin,
   FolderCheck,
   Loader2,
+  FileText,
 } from "lucide-react";
 import { LyricsRetryPanel } from "./LyricsRetryPanel";
 
 interface SidebarProps {
   totalFiles: number;
+  syncedCount?: number;
   activeFilter: string;
   onFilterChange: (filter: string) => void;
   activeNav: string;
@@ -30,6 +32,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   totalFiles,
+  syncedCount = 0,
   activeFilter,
   onFilterChange,
   activeNav,
@@ -37,12 +40,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTasksCount = 0,
 }) => {
   const libraryItems = [
-    { id: "pins", label: "Pins", icon: Pin },
+    { id: "songs", label: "Songs", icon: Music, badge: totalFiles },
+    { id: "lyrics", label: "Lyrics", icon: FileText, badge: `${syncedCount}/${totalFiles}` },
     { id: "recently_added", label: "Recently Added", icon: Clock },
     { id: "artists", label: "Artists", icon: User },
     { id: "albums", label: "Albums", icon: Disc },
-    { id: "songs", label: "Songs", icon: Music, badge: totalFiles },
-    { id: "music_videos", label: "Music Videos", icon: Video },
+    { id: "pins", label: "Pins", icon: Pin },
   ];
 
   if (activeTasksCount > 0) {

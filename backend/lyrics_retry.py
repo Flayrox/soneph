@@ -15,6 +15,8 @@ import glob
 import json
 import time
 import signal
+import threading
+import concurrent.futures
 
 def log(event_type: str, data: dict):
     """Print a JSON event line for streaming to the Go backend."""
@@ -70,6 +72,8 @@ def scan_missing_lrc(download_dir: str):
 
 # ── Retry ─────────────────────────────────────────────────────────────────────
 
+PREFERRED_PROVIDERS = ["lrclib", "netease", "musixmatch", "megalobiz", "genius"]
+
 def retry_lyrics_for_song(mp3_path: str, lrc_path: str):
     """
     Try to fetch synced lyrics for a single MP3 and write its .lrc file.
@@ -88,16 +92,18 @@ def retry_lyrics_for_song(mp3_path: str, lrc_path: str):
     elif title:
         query = title
     else:
-        # Fallback: use filename stem
-        query = os.path.splitext(os.path.basename(mp3_path))[0]
-        # Strip "artist - title" pattern if it's there
-        query = query.strip()
+        query = os.path.splitext(os.path.basename(mp3_path))[0].strip()
 
     if not query:
         return False, "no query"
 
     def _search():
-        return syncedlyrics.search(query, synced_only=True)
+        try:
+            return syncedlyrics.search(query, synced_only=True, providers=PREFERRED_PROVIDERS)
+        except TypeError:
+            return syncedlyrics.search(query, synced_only=True)
+        except Exception:
+            return None
 
     lyrics = with_timeout(6, _search)
 
@@ -109,9 +115,14 @@ def retry_lyrics_for_song(mp3_path: str, lrc_path: str):
         except Exception as e:
             return False, f"write error: {e}"
     else:
-        # Try with allow_plain_format as fallback
         def _search_plain():
-            return syncedlyrics.search(query, synced_only=False)
+            try:
+                return syncedlyrics.search(query, synced_only=False, providers=PREFERRED_PROVIDERS)
+            except TypeError:
+                return syncedlyrics.search(query, synced_only=False)
+            except Exception:
+                return None
+
         lyrics2 = with_timeout(6, _search_plain)
         if lyrics2 and len(lyrics2.strip()) > 10:
             try:
@@ -126,7 +137,13 @@ def retry_lyrics_for_song(mp3_path: str, lrc_path: str):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    download_dir = sys.argv[1] if len(sys.argv) > 1 else "./downloads"
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
+        download_dir = sys.argv[1]
+    elif os.path.exists("/app/downloads"):
+        download_dir = "/app/downloads"
+    else:
+        download_dir = "./downloads"
+
     scan_only = "--scan-only" in sys.argv
 
     log("scan_start", {"download_dir": download_dir})
@@ -140,7 +157,6 @@ def main():
     })
 
     if scan_only or not missing:
-        # Return a list of missing songs for the UI to display
         log("missing_list", {
             "songs": [
                 {
@@ -148,45 +164,48 @@ def main():
                     "filename": os.path.splitext(os.path.basename(mp3))[0],
                     "lrc": lrc,
                 }
-                for mp3, lrc in missing[:200]  # cap at 200 for UI
+                for mp3, lrc in missing[:200]
             ]
         })
         return
 
-    # Retry mode
+    # Retry mode in parallel (8 threads)
     success = 0
     failed = 0
     total = len(missing)
+    lock = threading.Lock()
+    completed_counter = 0
 
-    for i, (mp3_path, lrc_path) in enumerate(missing):
+    def process_item(item):
+        nonlocal completed_counter, success, failed
+        mp3_path, lrc_path = item
         filename = os.path.splitext(os.path.basename(mp3_path))[0]
-        log("retrying", {
-            "index": i + 1,
-            "total": total,
-            "filename": filename,
-        })
 
         ok, detail = retry_lyrics_for_song(mp3_path, lrc_path)
 
-        if ok:
-            success += 1
-            log("success", {
-                "index": i + 1,
-                "total": total,
-                "filename": filename,
-                "query": detail,
-            })
-        else:
-            failed += 1
-            log("failed", {
-                "index": i + 1,
-                "total": total,
-                "filename": filename,
-                "reason": detail,
-            })
+        with lock:
+            completed_counter += 1
+            idx = completed_counter
+            if ok:
+                success += 1
+                log("success", {
+                    "index": idx,
+                    "total": total,
+                    "filename": filename,
+                    "query": detail,
+                })
+            else:
+                failed += 1
+                log("failed", {
+                    "index": idx,
+                    "total": total,
+                    "filename": filename,
+                    "reason": detail,
+                })
 
-        # Small delay to avoid hammering the API
-        time.sleep(0.3)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(process_item, item) for item in missing]
+        concurrent.futures.wait(futures)
 
     log("done", {
         "total": total,

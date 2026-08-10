@@ -3,7 +3,7 @@ import os
 import sys
 import glob
 import re
-from mutagen.id3 import ID3, USLT, SYLT, ID3NoHeaderError
+from mutagen.id3 import ID3, USLT, SYLT, TXXX, ID3NoHeaderError
 
 def parse_lrc_for_sylt(lrc_text):
     """Parses LRC format into SYLT timestamp pairs [(text, timestamp_in_ms), ...]"""
@@ -42,15 +42,18 @@ def embed_lrc_into_mp3(folder):
 
                 plain_lyrics = strip_lrc_timestamps(raw_lrc)
                 sylt_data = parse_lrc_for_sylt(raw_lrc)
+                sync_type = "synced" if len(sylt_data) > 0 else "unsynced"
 
                 try:
                     tags = ID3(mp3_file)
                 except ID3NoHeaderError:
                     tags = ID3()
 
-                # Clean existing lyrics frames
+                # Clean existing lyrics frames & custom tags
                 tags.delall('USLT')
                 tags.delall('SYLT')
+                tags.delall('TXXX:LYRICS_SYNC_TYPE')
+                tags.delall('TXXX:HAS_LYRICS')
 
                 # 1. Add USLT (Unsynchronized lyrics) for plain text view
                 tags.add(USLT(encoding=3, lang='fra', desc='', text=plain_lyrics))
@@ -63,14 +66,21 @@ def embed_lrc_into_mp3(folder):
                     tags.add(SYLT(encoding=3, lang='eng', format=2, type=1, desc='', text=sylt_data))
                     tags.add(SYLT(encoding=3, lang='XXX', format=2, type=1, desc='', text=sylt_data))
 
-                # CRITICAL FOR APPLE MUSIC CLOUD SYNC:
-                # Save specifically as ID3v2.3 (v2_version=3). l'app Musique Cloud Uploader
-                # rejects ID3v2.4 tags with "This item was not added to your Cloud Music Library because an error occurred".
+                # 3. Add custom TXXX tags for metadata inspection ("synced" | "unsynced")
+                tags.add(TXXX(encoding=3, desc='LYRICS_SYNC_TYPE', text=[sync_type]))
+                tags.add(TXXX(encoding=3, desc='HAS_LYRICS', text=['true']))
+
+                # Save specifically as ID3v2.3 for l'app Musique Cloud compatibility
                 tags.save(mp3_file, v2_version=3)
-                print(f"Successfully embedded l'app Musique Cloud-compliant ID3v2.3 lyrics into: {mp3_file}")
+                print(f"Successfully embedded ID3v2.3 ({sync_type}) lyrics into: {mp3_file}")
             except Exception as e:
                 print(f"Failed to embed lyrics in {mp3_file}: {e}")
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "/app/downloads"
+    if len(sys.argv) > 1:
+        target = sys.argv[1]
+    elif os.path.exists("/app/downloads"):
+        target = "/app/downloads"
+    else:
+        target = "./downloads"
     embed_lrc_into_mp3(target)

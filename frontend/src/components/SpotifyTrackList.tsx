@@ -1,16 +1,17 @@
-"use client";
-
 import React from "react";
-import { Play, Pause, Trash2, CheckCircle2, Music, Clock } from "lucide-react";
+import { Play, Pause, Trash2, CheckCircle2, Music, Clock, Sparkles, FileText, AlertCircle } from "lucide-react";
 
 export interface DownloadedFile {
   rel_path: string;
+  file_name?: string;
   title: string;
   artist: string;
   album: string;
-  duration: number;
-  size_bytes: number;
-  has_lrc: boolean;
+  duration?: number;
+  size_bytes?: number;
+  has_lyrics?: boolean;
+  lyrics_type?: "synced" | "unsynced" | "none";
+  lrc_path?: string;
   mod_time: string;
 }
 
@@ -36,7 +37,9 @@ interface TrackListProps {
   currentPlayingPath: string | null;
   isPlaying: boolean;
   onTrackPlay: (relPath: string) => void;
+  onSelectTrack?: (track: DownloadedFile) => void;
   onDelete: (path: string) => void;
+  getApiUrl?: () => string;
 }
 
 export const TrackList: React.FC<TrackListProps> = ({
@@ -45,9 +48,11 @@ export const TrackList: React.FC<TrackListProps> = ({
   currentPlayingPath,
   isPlaying,
   onTrackPlay,
+  onSelectTrack,
   onDelete,
+  getApiUrl,
 }) => {
-  const formatDuration = (seconds: number) => {
+  const formatDuration = (seconds?: number) => {
     if (!seconds || isNaN(seconds)) return "3:30";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -82,7 +87,7 @@ export const TrackList: React.FC<TrackListProps> = ({
             <th className="py-2.5 px-4">Title</th>
             <th className="py-2.5 px-4 hidden md:table-cell">Album</th>
             <th className="py-2.5 px-4 hidden sm:table-cell">Added</th>
-            <th className="py-2.5 px-4 text-center w-16">Sync</th>
+            <th className="py-2.5 px-4 text-center w-28">Lyrics Sync</th>
             <th className="py-2.5 px-4 text-right w-16">Time</th>
             <th className="py-2.5 px-4 text-right w-12"></th>
           </tr>
@@ -161,17 +166,32 @@ export const TrackList: React.FC<TrackListProps> = ({
             const isSelected = currentPlayingPath === file.rel_path;
             const isThisPlaying = isSelected && isPlaying;
 
+            const isSynced = file.lyrics_type === "synced";
+            const isUnsynced = file.lyrics_type === "unsynced";
+
             return (
               <tr
                 key={file.rel_path}
                 className={`border-b border-white/5 group hover:bg-white/5 transition-colors cursor-pointer ${
                   isSelected ? "bg-apple-pink/15 text-white" : "text-zinc-300"
                 }`}
-                onClick={() => onTrackPlay(file.rel_path)}
+                onClick={() => {
+                  if (onSelectTrack) {
+                    onSelectTrack(file);
+                  } else {
+                    onTrackPlay(file.rel_path);
+                  }
+                }}
               >
                 {/* Track Number / Play Button */}
                 <td className="py-2.5 px-4 text-center text-apple-subtext font-medium group-hover:text-white">
-                  <div className="flex items-center justify-center w-5 h-5 mx-auto">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTrackPlay(file.rel_path);
+                    }}
+                    className="flex items-center justify-center w-6 h-6 mx-auto rounded-full hover:bg-apple-pink/20 transition-colors"
+                  >
                     {isThisPlaying ? (
                       <div className="flex items-end justify-center gap-0.5 h-3.5">
                         <span className="w-0.5 h-full bg-apple-pink animate-bounce" />
@@ -186,15 +206,24 @@ export const TrackList: React.FC<TrackListProps> = ({
                         <Play className="w-3.5 h-3.5 text-white fill-white hidden group-hover:block ml-0.5" />
                       </>
                     )}
-                  </div>
+                  </button>
                 </td>
 
                 {/* Track Title & Artist */}
                 <td className="py-2.5 px-4">
                   <div className="flex items-center gap-3">
-                    {/* Placeholder Cover Art */}
-                    <div className="w-9 h-9 rounded-md bg-[#28282c] border border-white/10 flex items-center justify-center text-apple-pink shrink-0 overflow-hidden shadow-sm">
-                      <Music className="w-4 h-4" />
+                    <div className="w-9 h-9 rounded-md bg-[#28282c] border border-white/10 flex items-center justify-center text-apple-pink shrink-0 overflow-hidden shadow-sm relative">
+                      <Music className="w-4 h-4 absolute inset-0 m-auto opacity-60" />
+                      {getApiUrl && (
+                        <img
+                          src={`${getApiUrl()}/cover?path=${encodeURIComponent(file.rel_path)}`}
+                          alt={file.title}
+                          className="w-full h-full object-cover relative z-10"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
                     </div>
                     <div className="min-w-0">
                       <p
@@ -221,11 +250,30 @@ export const TrackList: React.FC<TrackListProps> = ({
                   {formatModTime(file.mod_time)}
                 </td>
 
-                {/* iCloud Sync Status */}
+                {/* Lyrics Sync Status Badge */}
                 <td className="py-2.5 px-4 text-center">
-                  <div title="Synced in l'app Musique & iCloud" className="inline-block">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />
-                  </div>
+                  {isSynced ? (
+                    <span
+                      title="Time-Synced Karaoke LRC lyrics"
+                      className="inline-block text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded"
+                    >
+                      Synced
+                    </span>
+                  ) : isUnsynced ? (
+                    <span
+                      title="Plain text unsynced lyrics"
+                      className="inline-block text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded"
+                    >
+                      Text
+                    </span>
+                  ) : (
+                    <span
+                      title="No lyrics downloaded yet"
+                      className="inline-block text-[10px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded"
+                    >
+                      Missing
+                    </span>
+                  )}
                 </td>
 
                 {/* Duration */}

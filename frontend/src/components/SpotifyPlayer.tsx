@@ -25,6 +25,7 @@ interface PlayerProps {
   onOpenLyrics: () => void;
   audioRef: React.RefObject<HTMLAudioElement>;
   onTimeUpdate?: (time: number) => void;
+  getApiUrl?: () => string;
 }
 
 export const Player: React.FC<PlayerProps> = ({
@@ -36,6 +37,7 @@ export const Player: React.FC<PlayerProps> = ({
   onOpenLyrics,
   audioRef,
   onTimeUpdate,
+  getApiUrl,
 }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -131,8 +133,18 @@ export const Player: React.FC<PlayerProps> = ({
 
         {/* Track Info Card Container matching Screenshot 1 */}
         <div className="flex-1 bg-[#1a1a1d]/90 border border-white/10 rounded-xl px-3 py-1.5 flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#2a2a2e] rounded-md flex items-center justify-center text-apple-subtext shrink-0 overflow-hidden shadow">
-            <Disc className="w-5 h-5 text-apple-subtext" />
+          <div className="w-10 h-10 bg-[#2a2a2e] rounded-md flex items-center justify-center text-apple-subtext shrink-0 overflow-hidden shadow relative">
+            <Disc className="w-5 h-5 text-apple-subtext absolute inset-0 m-auto opacity-60" />
+            {getApiUrl && (
+              <img
+                src={`${getApiUrl()}/cover?path=${encodeURIComponent(currentTrack.rel_path)}`}
+                alt={currentTrack.title}
+                className="w-full h-full object-cover relative z-10"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            )}
           </div>
 
           <div className="overflow-hidden flex-1">

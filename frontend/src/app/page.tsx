@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { TrackList, DownloadedFile } from "@/components/TrackList";
@@ -8,6 +8,8 @@ import { Player } from "@/components/Player";
 import { LyricsModal } from "@/components/LyricsModal";
 import { QueueDrawer } from "@/components/QueueDrawer";
 import { ToastContainer, ToastMessage } from "@/components/Toast";
+import { LyricsDrawer } from "@/components/LyricsDrawer";
+import { LyricsManagerView } from "@/components/LyricsManagerView";
 
 export interface DownloadTask {
   id: string;
@@ -31,6 +33,10 @@ export default function Home() {
 
   // Queue Drawer State
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
+
+  // Right Side Lyrics Drawer State
+  const [selectedTrackForDrawer, setSelectedTrackForDrawer] = useState<DownloadedFile | null>(null);
+  const [isLyricsDrawerOpen, setIsLyricsDrawerOpen] = useState<boolean>(false);
 
   // Audio Playback State
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(null);
@@ -245,6 +251,11 @@ export default function Home() {
     }
   };
 
+  const handleSelectTrackForDrawer = (track: DownloadedFile) => {
+    setSelectedTrackForDrawer(track);
+    setIsLyricsDrawerOpen(true);
+  };
+
   const handlePrevTrack = () => {
     if (currentTrackIndex === null || files.length === 0) return;
     const prevIdx = (currentTrackIndex - 1 + files.length) % files.length;
@@ -265,17 +276,43 @@ export default function Home() {
     }
   };
 
-  const filteredFiles = files.filter(
-    (f) =>
-      f.title.toLowerCase().includes(activeFilter.toLowerCase()) ||
-      f.artist.toLowerCase().includes(activeFilter.toLowerCase()) ||
-      f.album.toLowerCase().includes(activeFilter.toLowerCase())
-  );
+  const filteredFiles = useMemo(() => {
+    let list = files.filter(
+      (f) =>
+        f.title.toLowerCase().includes(activeFilter.toLowerCase()) ||
+        f.artist.toLowerCase().includes(activeFilter.toLowerCase()) ||
+        f.album.toLowerCase().includes(activeFilter.toLowerCase())
+    );
+
+    if (activeNav === "recently_added") {
+      list = [...list].sort((a, b) => {
+        const timeA = a.mod_time ? new Date(a.mod_time).getTime() : 0;
+        const timeB = b.mod_time ? new Date(b.mod_time).getTime() : 0;
+        return timeB - timeA;
+      });
+    }
+
+    return list;
+  }, [files, activeFilter, activeNav]);
 
   const activeTasksCount = tasks.filter(
     (t) => t.status === "downloading" || t.status === "queued"
   ).length;
+  const syncedCount = files.filter((f) => f.lyrics_type === "synced").length;
   const currentTrack = currentTrackIndex !== null ? files[currentTrackIndex] : null;
+
+  // Auto-switch drawer track when currently playing song changes
+  useEffect(() => {
+    if (currentTrack && isLyricsDrawerOpen) {
+      setSelectedTrackForDrawer(currentTrack);
+    }
+  }, [currentTrack, isLyricsDrawerOpen]);
+
+  const handleSeekTrack = (time: number) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+    }
+  };
 
   return (
     <main className="h-screen w-screen bg-[#161618] flex overflow-hidden font-sans">
@@ -290,6 +327,7 @@ export default function Home() {
       {/* l'app Musique macOS Sidebar */}
       <Sidebar
         totalFiles={files.length}
+        syncedCount={syncedCount}
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
         activeNav={activeNav}
@@ -308,20 +346,48 @@ export default function Home() {
           onOpenQueue={() => setIsQueueOpen(true)}
         />
 
-        {/* Scrollable Song Table List */}
+        {/* Scrollable Main View (Songs vs Lyrics Management Center) */}
         <div className="flex-1 overflow-y-auto pb-32">
-          <TrackList
-            files={filteredFiles}
-            activeTasks={tasks}
-            currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-            isPlaying={isPlaying}
-            onTrackPlay={handleTrackPlay}
-            onDelete={handleDeleteFile}
-          />
+          {activeNav === "lyrics" ? (
+            <LyricsManagerView
+              files={files}
+              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
+              isPlaying={isPlaying}
+              onPlayTrack={handleTrackPlay}
+              onSelectTrack={handleSelectTrackForDrawer}
+              getApiUrl={getApiUrl}
+              onRefreshFiles={fetchFiles}
+            />
+          ) : (
+            <TrackList
+              files={filteredFiles}
+              activeTasks={tasks}
+              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
+              isPlaying={isPlaying}
+              onTrackPlay={handleTrackPlay}
+              onSelectTrack={handleSelectTrackForDrawer}
+              onDelete={handleDeleteFile}
+              getApiUrl={getApiUrl}
+            />
+          )}
         </div>
       </div>
 
-      {/* Floating l'app Musique Liquid Glass Capsule Player */}
+      {/* Right Side Lyrics & Details Column (Non-blocking window panel) */}
+      <LyricsDrawer
+        isOpen={isLyricsDrawerOpen}
+        onClose={() => setIsLyricsDrawerOpen(false)}
+        track={selectedTrackForDrawer}
+        currentTime={currentTime}
+        isPlaying={isPlaying}
+        currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
+        onPlayTrack={handleTrackPlay}
+        onSeekTrack={handleSeekTrack}
+        getApiUrl={getApiUrl}
+        onLyricsUpdated={fetchFiles}
+      />
+
+      {/* Floating l'app Musique Player */}
       <Player
         currentTrack={currentTrack}
         isPlaying={isPlaying}
@@ -331,6 +397,7 @@ export default function Home() {
         onOpenLyrics={() => setIsLyricsOpen(true)}
         audioRef={audioRef}
         onTimeUpdate={(t) => setCurrentTime(t)}
+        getApiUrl={getApiUrl}
       />
 
       {/* l'app Musique Style Active Queue & Download Manager Drawer */}

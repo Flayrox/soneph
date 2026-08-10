@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bufio"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -103,6 +105,41 @@ func (a *API) StreamFile(c *gin.Context) {
 	c.File(fullPath)
 }
 
+func (a *API) GetCover(c *gin.Context) {
+	relPath := c.Query("path")
+	if relPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
+		return
+	}
+
+	fullPath := filepath.Join(a.scanner.DownloadDir, filepath.Clean(relPath))
+	if _, err := os.Stat(fullPath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})
+		return
+	}
+
+	h := md5.Sum([]byte(relPath))
+	hashStr := hex.EncodeToString(h[:])
+	coverDir := filepath.Join(a.scanner.DownloadDir, ".covers")
+	coverPath := filepath.Join(coverDir, hashStr+".jpg")
+
+	if _, err := os.Stat(coverPath); err != nil {
+		pythonExec := downloader.GetPythonExec()
+		extractScript := downloader.GetScriptPath("extract_cover.py")
+
+		cmd := exec.Command(pythonExec, extractScript, fullPath, coverPath)
+		_ = cmd.Run()
+	}
+
+	if _, err := os.Stat(coverPath); err == nil {
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.File(coverPath)
+		return
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "No embedded artwork found"})
+}
+
 func (a *API) GetLyrics(c *gin.Context) {
 	relPath := c.Query("path")
 	if relPath == "" {
@@ -128,7 +165,10 @@ func (a *API) GetLyrics(c *gin.Context) {
 
 // ScanMissingLyrics returns all MP3 files that don't have a .lrc sidecar file.
 func (a *API) ScanMissingLyrics(c *gin.Context) {
-	cmd := exec.Command("python3", "/app/lyrics_retry.py", a.scanner.DownloadDir, "--scan-only")
+	pythonExec := downloader.GetPythonExec()
+	lyricsScript := downloader.GetScriptPath("lyrics_retry.py")
+
+	cmd := exec.Command(pythonExec, lyricsScript, a.scanner.DownloadDir, "--scan-only")
 	output, err := cmd.Output()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -180,7 +220,10 @@ func (a *API) RetryLyrics(c *gin.Context) {
 	a.lyricsJobMu.Unlock()
 
 	go func() {
-		cmd := exec.Command("python3", "/app/lyrics_retry.py", a.scanner.DownloadDir)
+		pythonExec := downloader.GetPythonExec()
+		lyricsScript := downloader.GetScriptPath("lyrics_retry.py")
+
+		cmd := exec.Command(pythonExec, lyricsScript, a.scanner.DownloadDir)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			a.lyricsJobMu.Lock()

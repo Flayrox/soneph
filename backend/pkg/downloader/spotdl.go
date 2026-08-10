@@ -46,6 +46,46 @@ type Manager struct {
 	broadcastFn func(event string, data interface{})
 }
 
+func GetPythonExec() string {
+	if _, err := exec.LookPath("python3"); err == nil {
+		return "python3"
+	}
+	if _, err := exec.LookPath("python"); err == nil {
+		return "python"
+	}
+	return "python3"
+}
+
+func GetScriptPath(scriptName string) string {
+	// 1. Docker / container path
+	dockerPath := filepath.Join("/app", scriptName)
+	if _, err := os.Stat(dockerPath); err == nil {
+		return dockerPath
+	}
+
+	// 2. Relative to current working directory
+	if _, err := os.Stat(scriptName); err == nil {
+		return scriptName
+	}
+
+	// 3. Parent directory / root workspace
+	parentPath := filepath.Join("..", scriptName)
+	if _, err := os.Stat(parentPath); err == nil {
+		return parentPath
+	}
+
+	// 4. Executable binary directory
+	if execPath, err := os.Executable(); err == nil {
+		binDir := filepath.Dir(execPath)
+		p := filepath.Join(binDir, scriptName)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	return scriptName
+}
+
 func NewManager(downloadDir string, broadcastFn func(event string, data interface{})) *Manager {
 	if downloadDir == "" {
 		downloadDir = "./downloads"
@@ -100,7 +140,14 @@ func (m *Manager) GetTasks() []*DownloadTask {
 
 	list := make([]*DownloadTask, 0, len(m.tasks))
 	for _, task := range m.tasks {
-		list = append(list, task)
+		taskCopy := *task
+		if task.RecentTracks != nil {
+			taskCopy.RecentTracks = append([]string(nil), task.RecentTracks...)
+		}
+		if task.Logs != nil {
+			taskCopy.Logs = append([]string(nil), task.Logs...)
+		}
+		list = append(list, &taskCopy)
 	}
 	return list
 }
@@ -109,13 +156,34 @@ func (m *Manager) GetTask(id string) (*DownloadTask, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	t, exists := m.tasks[id]
-	return t, exists
+	if !exists {
+		return nil, false
+	}
+	taskCopy := *t
+	if t.RecentTracks != nil {
+		taskCopy.RecentTracks = append([]string(nil), t.RecentTracks...)
+	}
+	if t.Logs != nil {
+		taskCopy.Logs = append([]string(nil), t.Logs...)
+	}
+	return &taskCopy, true
 }
 
 func (m *Manager) notifyUpdate(task *DownloadTask) {
-	if m.broadcastFn != nil {
-		m.broadcastFn("task_update", task)
+	if m.broadcastFn == nil {
+		return
 	}
+	m.mu.RLock()
+	taskCopy := *task
+	if task.RecentTracks != nil {
+		taskCopy.RecentTracks = append([]string(nil), task.RecentTracks...)
+	}
+	if task.Logs != nil {
+		taskCopy.Logs = append([]string(nil), task.Logs...)
+	}
+	m.mu.RUnlock()
+
+	m.broadcastFn("task_update", &taskCopy)
 }
 
 func (m *Manager) worker() {
@@ -132,8 +200,11 @@ func (m *Manager) runTask(task *DownloadTask) {
 	m.mu.Unlock()
 	m.notifyUpdate(task)
 
+	pythonExec := GetPythonExec()
+	fastFilterScript := GetScriptPath("fast_filter.py")
+
 	// Instant Pre-Filter Execution in Python
-	ffCmd := exec.Command("python3", "/app/fast_filter.py", m.downloadDir, task.URL)
+	ffCmd := exec.Command(pythonExec, fastFilterScript, m.downloadDir, task.URL)
 	ffOutput, ffErr := ffCmd.Output()
 	if ffErr == nil {
 		var ffResult struct {
@@ -170,7 +241,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.mp3")
 
 	overwriteFlag := "skip"
-	if task.Bitrate == "320k" {
+	if task.Order == "force" {
 		overwriteFlag = "force"
 	}
 
@@ -179,10 +250,8 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--bitrate", task.Bitrate,
 		"--threads", "16",
 		"--overwrite", overwriteFlag,
-		// synced = Musixmatch (precise time-synced lyrics) + genius as fallback.
-		// The 6s timeout patch in Dockerfile ensures Musixmatch never stalls the queue.
 		"--lyrics", "synced", "genius",
-		"--max-retries", "0",
+		"--max-retries", "1",
 		"--generate-lrc",
 		"--output", outputTemplate,
 	}
@@ -252,11 +321,6 @@ func (m *Manager) runTask(task *DownloadTask) {
 
 	if err := cmd.Wait(); err != nil {
 		m.mu.RLock()
-		// Don't fail the whole task if:
-		// - Pre-filter already counted some tracks as done, OR
-		// - At least one track was actually downloaded/skipped during this run
-		// spotdl exits non-zero when even a single track can't be found (LookupError),
-		// but that shouldn't cancel the entire 1000-track playlist.
 		hasSomeProgress := task.CompletedCount > 0 || task.TotalTracks > 0
 		m.mu.RUnlock()
 
@@ -264,13 +328,13 @@ func (m *Manager) runTask(task *DownloadTask) {
 			m.failTask(task, fmt.Sprintf("spotdl process exited with error: %v", err))
 			return
 		}
-		// Partial completion: log the error but continue to completion
 		m.mu.Lock()
 		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Warning: spotdl exited with code %v (some tracks may have failed to download — this is normal)", time.Now().Format("15:04:05"), err))
 		m.mu.Unlock()
 	}
 
-	embedCmd := exec.Command("python3", "/app/embed_lyrics.py", m.downloadDir)
+	embedScript := GetScriptPath("embed_lyrics.py")
+	embedCmd := exec.Command(pythonExec, embedScript, m.downloadDir)
 	_ = embedCmd.Run()
 
 	m.mu.Lock()

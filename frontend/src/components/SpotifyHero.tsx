@@ -35,10 +35,10 @@ export const Hero: React.FC<HeroProps> = ({
         {/* Playlist Cover Art Quad / Image */}
         <div className="w-44 h-44 sm:w-52 sm:h-52 bg--elevated rounded-md shadow-2xl overflow-hidden shrink-0 flex items-center justify-center border border-white/10 group relative">
           <div className="grid grid-cols-2 grid-rows-2 w-full h-full">
-            <div className="bg-blue-600/40 flex items-center justify-center text-white font-black text-xl">S</div>
-            <div className="bg-indigo-600/40 flex items-center justify-center text-white font-black text-xl">P</div>
-            <div className="bg-emerald-600/40 flex items-center justify-center text-white font-black text-xl">O</div>
-            <div className="bg-teal-600/40 flex items-center justify-center text-white font-black text-xl">T</div>
+            <div className="bg-rose-600/40 flex items-center justify-center text-white font-black text-xl">S</div>
+            <div className="bg-pink-600/40 flex items-center justify-center text-white font-black text-xl">O</div>
+            <div className="bg-red-600/40 flex items-center justify-center text-rose-300 font-black text-xl">N</div>
+            <div className="bg-rose-900/60 flex items-center justify-center text-rose-400 font-black text-lg font-mono">ephe</div>
           </div>
         </div>
 
@@ -46,11 +46,11 @@ export const Hero: React.FC<HeroProps> = ({
         <div className="flex flex-col gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-white">Public Playlist</span>
           <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight">
-            soneph Library
+            sonephe Library
           </h1>
 
           <div className="flex items-center gap-2 text-xs sm:text-sm text--subtext mt-2">
-            <span className="font-bold text-white">ephe</span>
+            <span className="font-bold text-white">son<span className="text-rose-500 font-extrabold">ephe</span></span>
             <span>•</span>
             <span>{totalFiles} songs, {formatSize(totalSizeBytes)}</span>
             <span>•</span>

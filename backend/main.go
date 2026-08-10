@@ -15,7 +15,11 @@ import (
 func main() {
 	downloadDir := os.Getenv("DOWNLOAD_DIR")
 	if downloadDir == "" {
-		downloadDir = "/app/downloads"
+		if _, err := os.Stat("/app/downloads"); err == nil {
+			downloadDir = "/app/downloads"
+		} else {
+			downloadDir = "./downloads"
+		}
 	}
 
 	wsHub := handler.NewWSHub()
@@ -44,6 +48,7 @@ func main() {
 		apiGroup.GET("/downloads", api.GetDownloads)
 		apiGroup.DELETE("/downloads", api.DeleteDownload)
 		apiGroup.GET("/stream", api.StreamFile)
+		apiGroup.GET("/cover", api.GetCover)
 		apiGroup.GET("/lyrics", api.GetLyrics)
 		apiGroup.GET("/lyrics/missing", api.ScanMissingLyrics)
 		apiGroup.POST("/lyrics/retry", api.RetryLyrics)

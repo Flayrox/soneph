@@ -3,22 +3,26 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
 
+var reLrcTimestamp = regexp.MustCompile(`\[\d{2}:\d{2}\.\d{2,3}\]`)
+
 type DownloadedFile struct {
-	ID        string    `json:"id"`
-	FileName  string    `json:"file_name"`
-	Title     string    `json:"title"`
-	Artist    string    `json:"artist"`
-	Album     string    `json:"album"`
-	Path      string    `json:"path"`
-	RelPath   string    `json:"rel_path"`
-	Size      int64     `json:"size"`
-	HasLyrics bool      `json:"has_lyrics"`
-	LrcPath   string    `json:"lrc_path,omitempty"`
-	ModTime   time.Time `json:"mod_time"`
+	ID         string    `json:"id"`
+	FileName   string    `json:"file_name"`
+	Title      string    `json:"title"`
+	Artist     string    `json:"artist"`
+	Album      string    `json:"album"`
+	Path       string    `json:"path"`
+	RelPath    string    `json:"rel_path"`
+	Size       int64     `json:"size"`
+	HasLyrics  bool      `json:"has_lyrics"`
+	LyricsType string    `json:"lyrics_type"` // "synced" | "unsynced" | "none"
+	LrcPath    string    `json:"lrc_path,omitempty"`
+	ModTime    time.Time `json:"mod_time"`
 }
 
 type Scanner struct {
@@ -30,6 +34,20 @@ func NewScanner(downloadDir string) *Scanner {
 		downloadDir = "./downloads"
 	}
 	return &Scanner{DownloadDir: downloadDir}
+}
+
+func inspectLyricsType(lrcPath string) (bool, string) {
+	if lrcPath == "" {
+		return false, "none"
+	}
+	content, err := os.ReadFile(lrcPath)
+	if err != nil || len(content) == 0 {
+		return false, "none"
+	}
+	if reLrcTimestamp.Match(content) {
+		return true, "synced"
+	}
+	return true, "unsynced"
 }
 
 func (s *Scanner) ListFiles() ([]DownloadedFile, error) {
@@ -74,20 +92,22 @@ func (s *Scanner) ListFiles() ([]DownloadedFile, error) {
 			}
 
 			baseWithoutExt := strings.TrimSuffix(path, filepath.Ext(path))
-			lrcPath, hasLyrics := lrcMap[baseWithoutExt]
+			lrcPath := lrcMap[baseWithoutExt]
+			hasLyrics, lyricsType := inspectLyricsType(lrcPath)
 
 			files = append(files, DownloadedFile{
-				ID:        rel,
-				FileName:  info.Name(),
-				Title:     title,
-				Artist:    artist,
-				Album:     album,
-				Path:      path,
-				RelPath:   rel,
-				Size:      info.Size(),
-				HasLyrics: hasLyrics,
-				LrcPath:   lrcPath,
-				ModTime:   info.ModTime(),
+				ID:         rel,
+				FileName:   info.Name(),
+				Title:      title,
+				Artist:     artist,
+				Album:      album,
+				Path:       path,
+				RelPath:    rel,
+				Size:       info.Size(),
+				HasLyrics:  hasLyrics,
+				LyricsType: lyricsType,
+				LrcPath:    lrcPath,
+				ModTime:    info.ModTime(),
 			})
 		}
 		return nil
