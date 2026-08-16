@@ -9,8 +9,11 @@ import (
 // Settings regroupe les réglages de l'application modifiables depuis l'UI.
 // Priorité : variable d'environnement > fichier de config > défauts.
 type Settings struct {
-	Workers int `json:"workers"`
-	Threads int `json:"threads"`
+	Workers int    `json:"workers"`
+	Threads int    `json:"threads"`
+	// PlaylistExportDir est le dossier où « Exporter les playlists » écrit
+	// les fichiers .m3u8 (dossier Syncthing, iPhone monté en USB…).
+	PlaylistExportDir string `json:"playlist_export_dir"`
 }
 
 const (

@@ -3,46 +3,13 @@ import { Play, Heart, Music, Clock, TrendingUp, Sparkles, ListMusic } from "luci
 import { Glass } from "./Glass";
 import { TrackContextMenu, useTrackCtxMenu } from "./TrackContextMenu";
 import { cleanTitle } from "@/format";
-import type { DownloadedFile, PlaylistSummary } from "@/types";
+import type { DownloadedFile } from "@/types";
+import type { PluginApp, PluginViewProps } from "@/framework/plugin.types";
 import { useI18n } from "@/i18n";
 
-export interface TopEntry {
-  file: DownloadedFile;
-  plays: number;
-}
-
-export interface PinnedEntry {
-  kind: "artist" | "album" | "playlist";
-  name: string;
-  files: DownloadedFile[];
-  /** Playlist id (only for pinned playlists). */
-  id?: string;
-  trackCount?: number;
-}
-
-interface HomeViewProps {
-  files: DownloadedFile[];
-  recent: DownloadedFile[];
-  top: TopEntry[];
-  liked: DownloadedFile[];
-  likes: Set<string>;
-  totalPlays: number;
-  currentPlayingPath: string | null;
-  isPlaying: boolean;
-  onPlayList: (paths: string[], index: number) => void;
-  onToggleLike: (path: string) => void;
-  onNavChange: (nav: string) => void;
-  getApiUrl: () => string;
-  /** Pinned artists & albums, rendered as quick-access cards. */
-  pinned: PinnedEntry[];
-  /** Shared context-menu callbacks (right-click on any home card). */
-  onPlayNext?: (paths: string[]) => void;
-  onSelectTrack?: (track: DownloadedFile) => void;
-  onDelete?: (path: string) => void;
-  playlists?: PlaylistSummary[];
-  onAddToPlaylist?: (playlistId: string, path: string) => void;
-  onCreatePlaylist?: (name: string) => void;
-}
+// Re-exports kept for backwards compatibility with the old prop interface.
+export type TopEntry = PluginApp["top"][number];
+export type PinnedEntry = PluginApp["pinned"][number];
 
 const Cover: React.FC<{ file: DownloadedFile; getApiUrl: () => string }> = ({ file, getApiUrl }) => (
   <div className="w-9 h-9 rounded-md bg-[#28282c] border border-white/10 flex items-center justify-center text-apple-pink shrink-0 overflow-hidden shadow-sm relative">
@@ -78,30 +45,32 @@ const LikeButton: React.FC<{
   </button>
 );
 
-export const HomeView: React.FC<HomeViewProps> = ({
-  files,
-  recent,
-  top,
-  liked,
-  likes,
-  totalPlays,
-  currentPlayingPath,
-  isPlaying,
-  onPlayList,
-  onToggleLike,
-  onNavChange,
-  getApiUrl,
-  pinned,
-  onPlayNext,
-  onSelectTrack,
-  onDelete,
-  playlists = [],
-  onAddToPlaylist,
-  onCreatePlaylist,
-}) => {
+export const HomeView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
   // Shared right-click context menu — same menu as everywhere else.
   const trackCtx = useTrackCtxMenu();
+
+  const {
+    files,
+    recent,
+    top,
+    likedFiles: liked,
+    likes,
+    totalPlays,
+    currentPlayingPath,
+    isPlaying,
+    playList: onPlayList,
+    toggleLike: onToggleLike,
+    setNav: onNavChange,
+    getApiUrl,
+    pinned,
+    playNext: onPlayNext,
+    openLyricsDrawer: onSelectTrack,
+    deleteFile: onDelete,
+    playlists = [],
+    addToPlaylist: onAddToPlaylist,
+    createPlaylist: onCreatePlaylist,
+  } = app as PluginApp;
 
   const playPathIn = (list: DownloadedFile[], path: string) => {
     const idx = list.findIndex((f) => f.rel_path === path);

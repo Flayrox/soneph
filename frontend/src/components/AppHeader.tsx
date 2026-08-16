@@ -1,7 +1,16 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Download, Loader2, Search, SlidersHorizontal, Check, PanelLeft, PanelRight } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  Search,
+  SlidersHorizontal,
+  Check,
+  PanelLeft,
+  PanelRight,
+} from "lucide-react";
 import { Glass } from "./Glass";
 import { useI18n, LangToggle } from "@/i18n";
+import { viewById } from "@/framework/pluginRegistry";
 
 interface AppHeaderProps {
   onDownload: (url: string, bitrate: string, order: string) => Promise<void>;
@@ -56,30 +65,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     if (currentNav.startsWith("pl:")) {
       return currentPlaylistName || t("Playlist");
     }
-    switch (currentNav) {
-      case "home":
-        return t("Home");
-      case "downloads":
-        return t("Downloads");
-      case "lyrics":
-        return t("Lyrics");
-      case "sync":
-        return t("Sync & Settings");
-      case "liked":
-        return t("Liked tracks");
-      case "stats":
-        return t("Stats Module");
-      case "marketplace":
-        return t("Marketplace");
-      default:
-        return t("All Music");
+    if (currentNav.startsWith("artist:") || currentNav.startsWith("album:")) {
+      return t("Collection");
     }
+    // Registry-driven: every plugin view declares its own label.
+    const view = viewById(currentNav);
+    if (view) return t(view.labelKey);
+    return t("All Music");
   };
+
+  // Dans l'app macOS (Electron), le header laisse la place aux trois
+  // points de la fenêtre (traffic lights) à gauche.
+  const isDesktop =
+    typeof window !== "undefined" && window.navigator.userAgent.includes("Electron");
 
   return (
     <header className="h-14 bg-[#161618]/90 backdrop-blur-2xl border-b border-white/10 px-6 flex items-center justify-between sticky top-0 z-30 select-none">
       {/* Page Title */}
-      <div className="flex items-center gap-3">
+      <div className={`flex items-center gap-3 ${isDesktop ? "pl-14" : ""}`}>
         <h1 className="text-lg font-bold text-white tracking-tight">{getNavTitle()}</h1>
       </div>
 
@@ -97,12 +100,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder={t("Paste Link...")}
-            className="w-full bg-[#242428]/50 border border-white/10 focus:border-apple-pink rounded-full py-1.5 pl-10 pr-24 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all shadow-inner"
+            className="w-full bg-[#242428]/50 border border-white/10 focus:border-apple-pink rounded-full py-1.5 pl-10 pr-32 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all shadow-inner"
           />
           <button
             type="submit"
             disabled={isLoading || !url.trim()}
-            className="absolute right-1 px-3 py-1 bg-apple-pink hover:bg-apple-pinkHover disabled:opacity-50 text-white font-semibold rounded-full text-xs flex items-center gap-1 transition-all shadow-md active:scale-95"
+            className={`absolute right-1 px-3 py-1 text-white font-semibold rounded-full text-xs flex items-center gap-1 transition-all shadow-md active:scale-95 disabled:opacity-50 bg-apple-pink hover:bg-apple-pinkHover`}
           >
             {isLoading ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

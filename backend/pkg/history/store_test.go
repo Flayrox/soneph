@@ -144,6 +144,54 @@ func TestLikesAddRemoveList(t *testing.T) {
 	}
 }
 
+// TestHistoryRename: un morceau déplacé (single → album) garde son
+// historique d'écoutes sur le nouveau chemin.
+func TestHistoryRename(t *testing.T) {
+	s := newTestStore(t)
+	s.Add("Ninho/Vrais/Vrais.mp3.mp3", 180)
+	s.Add("Jul/Zone/Zone.mp3.mp3", 200)
+
+	s.Rename("Ninho/Vrais/Vrais.mp3.mp3", "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3")
+
+	recs := s.Recent(10)
+	if len(recs) != 2 {
+		t.Fatalf("want 2 records, got %d", len(recs))
+	}
+	found := false
+	for _, r := range recs {
+		if r.Path == "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3" {
+			found = true
+		}
+		if r.Path == "Ninho/Vrais/Vrais.mp3.mp3" {
+			t.Error("old path should be gone after rename")
+		}
+	}
+	if !found {
+		t.Errorf("renamed path not found in history: %+v", recs)
+	}
+}
+
+// TestLikesRename: un morceau déplacé garde son like sur le nouveau chemin.
+func TestLikesRename(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SONEPH_LIKES_FILE", filepath.Join(dir, "likes.json"))
+	ls := NewLikes()
+	_, _ = ls.Add("Ninho/Vrais/Vrais.mp3.mp3")
+
+	ls.Rename("Ninho/Vrais/Vrais.mp3.mp3", "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3")
+
+	got := ls.List()
+	if len(got) != 1 || got[0] != "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3" {
+		t.Fatalf("want renamed like, got %v", got)
+	}
+
+	// Renommer un chemin non liké ne casse rien.
+	ls.Rename("Nope/X.mp3", "Nope/Y.mp3")
+	if len(ls.List()) != 1 {
+		t.Fatalf("unexpected likes after no-op rename: %v", ls.List())
+	}
+}
+
 // TestPersistenceAcrossInstances: likes + history survive a restart (new instance).
 func TestPersistenceAcrossInstances(t *testing.T) {
 	dir := t.TempDir()

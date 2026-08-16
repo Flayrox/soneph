@@ -7,6 +7,8 @@ export interface DownloadedFile {
   artist: string;
   album: string;
   duration?: number;
+  /** Taille en octets (champ `size` du backend). */
+  size?: number;
   size_bytes?: number;
   has_lyrics?: boolean;
   lyrics_type?: "synced" | "unsynced" | "none";

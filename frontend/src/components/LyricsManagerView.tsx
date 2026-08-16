@@ -2,28 +2,20 @@ import React, { useState } from "react";
 import { Search, Music, Play, Pause, RefreshCw, FileText } from "lucide-react";
 import { cleanTitle } from "@/format";
 import type { DownloadedFile } from "@/types";
+import type { PluginViewProps } from "@/framework/plugin.types";
 import { useI18n } from "@/i18n";
 
-interface LyricsManagerViewProps {
-  files: DownloadedFile[];
-  currentPlayingPath: string | null;
-  isPlaying: boolean;
-  onPlayTrack: (relPath: string) => void;
-  onSelectTrack: (track: DownloadedFile) => void;
-  getApiUrl: () => string;
-  onRefreshFiles: () => void;
-}
-
-export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
-  files,
-  currentPlayingPath,
-  isPlaying,
-  onPlayTrack,
-  onSelectTrack,
-  getApiUrl,
-  onRefreshFiles,
-}) => {
+export const LyricsManagerView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
+  const {
+    files,
+    currentPlayingPath,
+    isPlaying,
+    playTrack: onPlayTrack,
+    openLyricsDrawer: onSelectTrack,
+    getApiUrl,
+    refreshFiles: onRefreshFiles,
+  } = app;
   const [filterType, setFilterType] = useState<"all" | "synced" | "unsynced" | "missing">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isUpgrading, setIsUpgrading] = useState<boolean>(false);

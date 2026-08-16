@@ -1,11 +1,15 @@
 # soneph — commandes pratiques
 # Usage : make dev | make build | make test | make vet | make fmt
 
-.PHONY: dev build build-go test vet fmt
+.PHONY: dev build build-go desktop test vet fmt
 
 ## dev — lance le backend Go + le dev server Vite (Ctrl+C arrête tout)
 dev:
 	./scripts/dev.sh
+
+## desktop — build complet de l'app macOS (.app Electron)
+desktop:
+	cd desktop && ./build.sh
 
 ## build-go — build le frontend Vite et le copie dans backend/web/dist (embarqué dans le binaire Go)
 build-go:

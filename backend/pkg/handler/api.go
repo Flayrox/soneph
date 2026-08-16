@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"soneph-backend/pkg/config"
 	"soneph-backend/pkg/downloader"
@@ -32,6 +33,13 @@ type API struct {
 	likes       *history.LikesStore
 	lyricsJobMu sync.Mutex
 	lyricsJob   *lyricsRetryJob
+
+	// playlistTasks associe chaque tâche de téléchargement (task ID) à la
+	// playlist créée en même temps qu'elle (lien playlist collé dans l'app).
+	// À la fin du téléchargement, les morceaux manquants arrivés sur disque
+	// y sont ajoutés (afterDownload).
+	playlistTasksMu sync.Mutex
+	playlistTasks   map[string]string
 }
 
 type lyricsRetryJob struct {
@@ -41,6 +49,7 @@ type lyricsRetryJob struct {
 	Done      int       `json:"done"`
 	Success   int       `json:"success"`
 	Failed    int       `json:"failed"`
+	Kept      int       `json:"kept"` // paroles texte brut déjà là, pas de version synced dispo
 	Current   string    `json:"current"`
 	Logs      []string  `json:"logs"`
 }
@@ -52,7 +61,7 @@ type DownloadRequest struct {
 }
 
 func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, hist *history.Store, likes *history.LikesStore) *API {
-	return &API{
+	a := &API{
 		downloader: dl,
 		scanner:    sc,
 		importer:   imp,
@@ -60,7 +69,154 @@ func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, 
 		history:    hist,
 		likes:      likes,
 		lyricsJob:  &lyricsRetryJob{Status: "idle"},
+		playlistTasks: map[string]string{},
 	}
+	// Quand le moteur déplace un fichier (single → album), on migre les
+	// stats (historique, likes, playlists) vers le nouveau chemin.
+	dl.SetOnFilesMoved(a.migrateMovedStats)
+	// Quand un téléchargement se termine, on complète la playlist créée en
+	// même temps que lui (les morceaux manquants viennent d'arriver).
+	dl.SetOnTaskDone(a.afterDownload)
+	return a
+}
+
+// migrateMovedStats ré-attache les stats (écoutes, likes, playlists) aux
+// nouveaux chemins des fichiers que le moteur a déplacés.
+func (a *API) migrateMovedStats(moves []downloader.FileMove) {
+	for _, mv := range moves {
+		a.migrateStats(mv.OldRel, mv.NewRel)
+	}
+}
+
+// migrateStats ré-attache les stats d'un ancien chemin vers un nouveau
+// (fichier déplacé par le moteur, doublon supprimé, album supprimé…).
+func (a *API) migrateStats(oldPath, newPath string) {
+	if oldPath == "" || newPath == "" || oldPath == newPath {
+		return
+	}
+	a.history.Rename(oldPath, newPath)
+	a.likes.Rename(oldPath, newPath)
+	a.playlists.RenameTrack(oldPath, newPath)
+}
+
+// isPlaylistLink détecte un lien de playlist Spotify (open.spotify.com ou
+// URI spotify:playlist:). Les albums ne déclenchent pas de création de
+// playlist — l'app les regroupe déjà par album dans la Collection.
+func isPlaylistLink(url string) bool {
+	u := strings.ToLower(strings.TrimSpace(url))
+	return strings.Contains(u, "/playlist/") || strings.Contains(u, "spotify:playlist:")
+}
+
+// resolvedTrack / resolvedMissing sont les formes JSON de playlist_from_url.py.
+type resolvedTrack struct {
+	Title   string `json:"title"`
+	Artist  string `json:"artist"`
+	RelPath string `json:"rel_path"`
+}
+
+type resolvedMissing struct {
+	Title  string `json:"title"`
+	Artist string `json:"artist"`
+}
+
+// resolvePlaylistURL interroge playlist_from_url.py (API embed Spotify) :
+// nom de la playlist + morceaux déjà sur disque (matched) + manquants.
+func (a *API) resolvePlaylistURL(url string) (name string, matched []resolvedTrack, missing []resolvedMissing, total int, err error) {
+	pythonExec := downloader.GetPythonExec()
+	script := downloader.GetScriptPath("playlist_from_url.py")
+	cmd := exec.Command(pythonExec, script, a.scanner.DownloadDir, strings.TrimSpace(url))
+	output, err := cmd.Output()
+	if err != nil {
+		return "", nil, nil, 0, err
+	}
+	var res struct {
+		Name    string            `json:"name"`
+		Matched []resolvedTrack   `json:"matched"`
+		Missing []resolvedMissing `json:"missing"`
+		Total   int               `json:"total"`
+	}
+	if err := json.Unmarshal(output, &res); err != nil {
+		return "", nil, nil, 0, err
+	}
+	return res.Name, res.Matched, res.Missing, res.Total, nil
+}
+
+// createPlaylistForURL crée la playlist (morceaux déjà sur disque ajoutés
+// immédiatement) et mémorise la correspondance task → playlist pour que
+// afterDownload complète à la fin du téléchargement.
+func (a *API) createPlaylistForURL(taskID, url string) *gin.H {
+	name, matched, missing, total, err := a.resolvePlaylistURL(url)
+	if err != nil {
+		return nil
+	}
+	if name == "" {
+		name = "Playlist"
+	}
+	pl, err := a.playlists.Create(name)
+	if err != nil {
+		return nil
+	}
+	added := 0
+	for _, m := range matched {
+		// Sécurité : on ne référence que des chemins valides de la bibliothèque.
+		if _, err := a.scanner.ResolvePath(m.RelPath); err != nil {
+			continue
+		}
+		if _, err := a.playlists.AddTrack(pl.ID, m.RelPath); err == nil {
+			added++
+		}
+	}
+	a.playlistTasksMu.Lock()
+	a.playlistTasks[taskID] = pl.ID
+	a.playlistTasksMu.Unlock()
+	return &gin.H{
+		"id":          pl.ID,
+		"name":        pl.Name,
+		"added_now":   added,
+		"matched":     len(matched),
+		"to_download": len(missing),
+		"total":       total,
+	}
+}
+
+// afterDownload complète la playlist créée pour ce téléchargement : les
+// morceaux manquants viennent d'arriver sur disque, on les ajoute (AddTrack
+// dédoublonne, donc re-ajouter un morceau déjà présent est sans effet).
+// Lancé dans une goroutine pour ne jamais bloquer la file de téléchargement
+// sur l'appel réseau de résolution.
+func (a *API) afterDownload(task *downloader.DownloadTask) {
+	if task == nil || task.Status != downloader.StatusCompleted {
+		return
+	}
+	a.playlistTasksMu.Lock()
+	plID := a.playlistTasks[task.ID]
+	delete(a.playlistTasks, task.ID)
+	a.playlistTasksMu.Unlock()
+	if plID == "" {
+		return
+	}
+
+	go func(playlistID, url string) {
+		_, matched, _, _, err := a.resolvePlaylistURL(url)
+		if err != nil {
+			return
+		}
+		added := 0
+		for _, m := range matched {
+			if _, err := a.scanner.ResolvePath(m.RelPath); err != nil {
+				continue
+			}
+			if _, err := a.playlists.AddTrack(playlistID, m.RelPath); err == nil {
+				added++
+			}
+		}
+		if added > 0 {
+			a.downloader.Broadcast("playlist_updated", gin.H{
+				"playlist_id": playlistID,
+				"added":       added,
+			})
+		}
+	}(plID, task.URL)
 }
 
 func (a *API) CreateDownload(c *gin.Context) {
@@ -71,9 +227,19 @@ func (a *API) CreateDownload(c *gin.Context) {
 	}
 
 	task := a.downloader.AddTask(req.URL, req.Bitrate, req.Order)
+
+	// Lien playlist : téléchargement + création de la playlist en même temps.
+	// Les morceaux déjà sur disque y sont ajoutés immédiatement ; les autres
+	// le seront à la fin du téléchargement (afterDownload).
+	var playlistInfo *gin.H
+	if isPlaylistLink(req.URL) {
+		playlistInfo = a.createPlaylistForURL(task.ID, req.URL)
+	}
+
 	c.JSON(http.StatusAccepted, gin.H{
-		"message": "Download task queued",
-		"task":    task,
+		"message":  "Download task queued",
+		"task":     task,
+		"playlist": playlistInfo,
 	})
 }
 
@@ -98,13 +264,77 @@ func (a *API) DeleteDownload(c *gin.Context) {
 		return
 	}
 
+	// Migration inverse : si une autre copie du même morceau (même URL
+	// Spotify dans les tags) existe encore — par ex. on supprime le fichier
+	// album et il reste le single — on recolle les stats dessus.
+	var statsMigrated *gin.H
+	identity := ""
+	before := a.downloader.ScanIdentityMap()
+	for id, paths := range before {
+		for _, p := range paths {
+			if p == relPath {
+				identity = id
+			}
+		}
+	}
+	sibling := ""
+	if identity != "" {
+		for _, p := range before[identity] {
+			if p != relPath {
+				sibling = p
+				break
+			}
+		}
+	}
+
 	err := a.scanner.DeleteFile(relPath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "File deleted successfully"})
+	if sibling != "" {
+		a.migrateStats(relPath, sibling)
+		statsMigrated = &gin.H{"from": relPath, "to": sibling}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "File deleted successfully",
+		"stats_migrated": statsMigrated,
+	})
+}
+
+// GetFileDetails returns the full ID3 metadata of one file (artists,
+// producers, lyrics source, quality…) for the right-click details panel.
+func (a *API) GetFileDetails(c *gin.Context) {
+	relPath := c.Query("path")
+	if relPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
+		return
+	}
+	if _, err := a.scanner.ResolvePath(relPath); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	pythonExec := downloader.GetPythonExec()
+	detailsScript := downloader.GetScriptPath("file_details.py")
+	cmd := exec.Command(pythonExec, detailsScript, a.scanner.DownloadDir, relPath)
+	output, err := cmd.Output()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Impossible de lire les métadonnées du fichier"})
+		return
+	}
+	var details map[string]interface{}
+	if err := json.Unmarshal(output, &details); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Réponse du script illisible"})
+		return
+	}
+	if msg, ok := details["error"].(string); ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": msg})
+		return
+	}
+	c.JSON(http.StatusOK, details)
 }
 
 func (a *API) StreamFile(c *gin.Context) {
@@ -271,9 +501,16 @@ func (a *API) RetryLyrics(c *gin.Context) {
 			evtType, _ := evt["type"].(string)
 			switch evtType {
 			case "scan_complete":
+				// Les candidats sont les fichiers sans paroles + ceux en texte
+				// brut (à synchroniser).
+				total := 0.0
 				if v, ok := evt["missing_lrc"].(float64); ok {
-					a.lyricsJob.Total = int(v)
+					total += v
 				}
+				if v, ok := evt["unsynced_lrc"].(float64); ok {
+					total += v
+				}
+				a.lyricsJob.Total = int(total)
 			case "retrying":
 				if name, ok := evt["filename"].(string); ok {
 					a.lyricsJob.Current = name
@@ -286,19 +523,27 @@ func (a *API) RetryLyrics(c *gin.Context) {
 				if name, ok := evt["filename"].(string); ok {
 					a.lyricsJob.Logs = append([]string{"✅ " + name}, a.lyricsJob.Logs...)
 				}
-			case "failed":
-				a.lyricsJob.Failed++
-				if name, ok := evt["filename"].(string); ok {
-					a.lyricsJob.Logs = append([]string{"❌ " + name}, a.lyricsJob.Logs...)
-				}
-			case "done":
-				if v, ok := evt["success"].(float64); ok {
-					a.lyricsJob.Success = int(v)
-				}
-				if v, ok := evt["failed"].(float64); ok {
-					a.lyricsJob.Failed = int(v)
-				}
+		case "failed":
+			a.lyricsJob.Failed++
+			if name, ok := evt["filename"].(string); ok {
+				a.lyricsJob.Logs = append([]string{"❌ " + name}, a.lyricsJob.Logs...)
 			}
+		case "kept":
+			a.lyricsJob.Kept++
+			if name, ok := evt["filename"].(string); ok {
+				a.lyricsJob.Logs = append([]string{"ℹ️ " + name + " (texte brut, pas de version synced)"}, a.lyricsJob.Logs...)
+			}
+		case "done":
+			if v, ok := evt["success"].(float64); ok {
+				a.lyricsJob.Success = int(v)
+			}
+			if v, ok := evt["failed"].(float64); ok {
+				a.lyricsJob.Failed = int(v)
+			}
+			if v, ok := evt["kept"].(float64); ok {
+				a.lyricsJob.Kept = int(v)
+			}
+		}
 			if len(a.lyricsJob.Logs) > 100 {
 				a.lyricsJob.Logs = a.lyricsJob.Logs[:100]
 			}
@@ -368,6 +613,78 @@ func (a *API) CreatePlaylist(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"playlist": p})
+}
+
+// CreatePlaylistFromURL crée une playlist dans l'app à partir d'un lien
+// (playlist/album) en résolvant les morceaux DÉJÀ présents sur disque — sans
+// rien télécharger. Idéal quand on a déjà les sons et qu'on veut juste la
+// playlist. Les morceaux manquants sont renvoyés pour info.
+func (a *API) CreatePlaylistFromURL(c *gin.Context) {
+	var req struct {
+		URL  string `json:"url"`
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.URL) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "'url' est requis"})
+		return
+	}
+
+	pythonExec := downloader.GetPythonExec()
+	script := downloader.GetScriptPath("playlist_from_url.py")
+	cmd := exec.Command(pythonExec, script, a.scanner.DownloadDir, strings.TrimSpace(req.URL))
+	output, err := cmd.Output()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Impossible de résoudre le lien"})
+		return
+	}
+	var res struct {
+		Name    string `json:"name"`
+		Matched []struct {
+			Title   string `json:"title"`
+			Artist  string `json:"artist"`
+			RelPath string `json:"rel_path"`
+		} `json:"matched"`
+		Missing []struct {
+			Title  string `json:"title"`
+			Artist string `json:"artist"`
+		} `json:"missing"`
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(output, &res); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Réponse du script illisible"})
+		return
+	}
+	if len(res.Matched) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "Aucun morceau de ce lien n'est déjà sur disque — télécharge-le d'abord, puis crée la playlist",
+			"missing": res.Missing,
+		})
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = res.Name
+	}
+	p, err := a.playlists.Create(name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	for _, m := range res.Matched {
+		// Sécurité : on ne référence que des chemins valides de la bibliothèque.
+		if _, err := a.scanner.ResolvePath(m.RelPath); err != nil {
+			continue
+		}
+		_, _ = a.playlists.AddTrack(p.ID, m.RelPath)
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"playlist": p,
+		"matched":  len(res.Matched),
+		"missing":  res.Missing,
+		"total":    res.Total,
+	})
 }
 
 // DeletePlaylist removes a playlist and its file.
@@ -591,5 +908,138 @@ func (a *API) StopSync(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, a.importer.Status())
+}
+
+// ── Dédoublonnage ────────────────────────────────────────────────────────
+
+// FindDuplicates returns groups of library files that look like the same
+// track (Apple Music rips, "(1)" copies…). The user keeps one per group.
+func (a *API) FindDuplicates(c *gin.Context) {
+	files, err := a.scanner.ListFiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	groups := storage.FindDuplicates(files)
+	total := 0
+	for _, g := range groups {
+		total += len(g.Files) - 1
+	}
+	c.JSON(http.StatusOK, gin.H{"groups": groups, "total": total})
+}
+
+// RemoveDuplicates deletes the given rel_paths (and their .lrc files). Les
+// stats (écoutes, likes, playlists) des copies supprimées sont transférées
+// au fichier gardé (keep_for : chemin supprimé → chemin conservé).
+func (a *API) RemoveDuplicates(c *gin.Context) {
+	var req struct {
+		Paths   []string          `json:"paths"`
+		KeepFor map[string]string `json:"keep_for"` // chemin supprimé → chemin gardé
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Paths) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "'paths' (liste de chemins) attendu"})
+		return
+	}
+	deleted, failed := 0, 0
+	var firstErr error
+	for _, p := range req.Paths {
+		if err := a.scanner.DeleteFile(p); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			deleted++
+			// La copie supprimée laisse ses stats à la copie gardée.
+			if keep, ok := req.KeepFor[p]; ok {
+				a.migrateStats(p, keep)
+			}
+		}
+	}
+	if firstErr != nil {
+		c.JSON(http.StatusMultiStatus, gin.H{"deleted": deleted, "failed": failed, "error": firstErr.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
+}
+
+// ── Export playlists (iPhone / Syncthing) ────────────────────────────────
+
+// ExportPlaylists writes one .m3u8 per playlist into the requested folder
+// (a Syncthing folder or an iPhone mounted via USB). Tracks are referenced
+// by their relative path so the same tree on the phone resolves them.
+func (a *API) ExportPlaylists(c *gin.Context) {
+	var req struct {
+		Dir string `json:"dir"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Dir) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "'dir' (dossier d'export) attendu"})
+		return
+	}
+
+	dir := strings.TrimSpace(req.Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Impossible de créer le dossier : " + err.Error()})
+		return
+	}
+
+	files, err := a.scanner.ListFiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	byRel := make(map[string]storage.DownloadedFile, len(files))
+	for _, f := range files {
+		byRel[f.RelPath] = f
+	}
+
+	summaries, err := a.playlists.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var written []gin.H
+	for _, s := range summaries {
+		pl, err := a.playlists.Get(s.ID)
+		if err != nil {
+			continue
+		}
+		safe := sanitizeFilename(pl.Name)
+		var sb strings.Builder
+		sb.WriteString("#EXTM3U\r\n")
+		for _, rel := range pl.Tracks {
+			f, ok := byRel[rel]
+			if !ok {
+				continue
+			}
+			sb.WriteString("#EXTINF:-1," + f.Artist + " - " + f.Title + "\r\n")
+			sb.WriteString(filepath.ToSlash(rel) + "\r\n")
+		}
+		out := filepath.Join(dir, safe+".m3u8")
+		if err := os.WriteFile(out, []byte(sb.String()), 0o644); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		written = append(written, gin.H{"name": safe + ".m3u8", "track_count": len(pl.Tracks)})
+	}
+
+	// Mémorise le dossier pour la prochaine fois.
+	cfg := config.Load()
+	cfg.PlaylistExportDir = dir
+	_ = config.Save(cfg)
+
+	c.JSON(http.StatusOK, gin.H{"dir": dir, "files": written, "count": len(written)})
+}
+
+// sanitizeFilename rend un nom de playlist sûr pour un nom de fichier.
+func sanitizeFilename(name string) string {
+	re := regexp.MustCompile(`[\\/:*?"<>|]+`)
+	name = re.ReplaceAllString(name, " ")
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Playlist"
+	}
+	return name
 }
 

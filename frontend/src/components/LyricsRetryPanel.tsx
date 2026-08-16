@@ -17,6 +17,7 @@ interface LyricsJob {
 interface MissingScan {
   total_mp3s: number;
   missing_lrc: number;
+  unsynced_lrc: number;
 }
 
 export const LyricsRetryPanel: React.FC = () => {
@@ -46,10 +47,15 @@ export const LyricsRetryPanel: React.FC = () => {
     try {
       const res = await apiFetch("/api/lyrics/missing");
       const data = await res.json();
-      const scanData = data.scan as { missing_lrc?: number; total_mp3s?: number };
+      const scanData = data.scan as {
+        missing_lrc?: number;
+        unsynced_lrc?: number;
+        total_mp3s?: number;
+      };
       setScan({
         total_mp3s: scanData?.total_mp3s ?? 0,
         missing_lrc: scanData?.missing_lrc ?? 0,
+        unsynced_lrc: scanData?.unsynced_lrc ?? 0,
       });
     } catch {
       setScan(null);
@@ -111,14 +117,20 @@ export const LyricsRetryPanel: React.FC = () => {
                 <span>{t("Without synced lyrics")}</span>
                 <span
                   className={
-                    scan.missing_lrc > 0
+                    scan.missing_lrc + scan.unsynced_lrc > 0
                       ? "text-amber-400 font-semibold"
                       : "text-emerald-400 font-semibold"
                   }
                 >
-                  {scan.missing_lrc}
+                  {scan.missing_lrc + scan.unsynced_lrc}
                 </span>
               </div>
+              {scan.unsynced_lrc > 0 && (
+                <div className="flex justify-between text-zinc-500">
+                  <span>{t("Plain text to upgrade")}</span>
+                  <span>{scan.unsynced_lrc}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -188,7 +200,11 @@ export const LyricsRetryPanel: React.FC = () => {
             </button>
             <button
               onClick={handleRetry}
-              disabled={!scan || scan.missing_lrc === 0 || job?.status === "running"}
+              disabled={
+                !scan ||
+                scan.missing_lrc + scan.unsynced_lrc === 0 ||
+                job?.status === "running"
+              }
               className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-apple-pink/20 hover:bg-apple-pink/30 text-apple-pink transition-colors disabled:opacity-40"
             >
               <Music2 className="w-3 h-3" />

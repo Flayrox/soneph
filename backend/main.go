@@ -88,6 +88,7 @@ func main() {
 		apiGroup.GET("/downloads", api.GetDownloads)
 		apiGroup.DELETE("/downloads", api.DeleteDownload)
 		apiGroup.GET("/stream", api.StreamFile)
+		apiGroup.GET("/file/details", api.GetFileDetails)
 		apiGroup.GET("/cover", api.GetCover)
 		apiGroup.GET("/lyrics", api.GetLyrics)
 		apiGroup.GET("/lyrics/missing", api.ScanMissingLyrics)
@@ -97,6 +98,7 @@ func main() {
 		apiGroup.POST("/settings", api.SaveSettings)
 		apiGroup.GET("/playlists", api.ListPlaylists)
 		apiGroup.POST("/playlists", api.CreatePlaylist)
+		apiGroup.POST("/playlists/from-url", api.CreatePlaylistFromURL)
 		apiGroup.DELETE("/playlists/:id", api.DeletePlaylist)
 		apiGroup.GET("/playlists/:id", api.GetPlaylist)
 		apiGroup.POST("/playlists/:id/tracks", api.AddPlaylistTrack)
@@ -112,6 +114,9 @@ func main() {
 		apiGroup.GET("/sync/status", api.GetSyncStatus)
 		apiGroup.POST("/sync/start", api.StartSync)
 		apiGroup.POST("/sync/stop", api.StopSync)
+		apiGroup.GET("/duplicates", api.FindDuplicates)
+		apiGroup.POST("/duplicates/remove", api.RemoveDuplicates)
+		apiGroup.POST("/playlists/export", api.ExportPlaylists)
 		apiGroup.GET("/ws", wsHub.HandleWS)
 	}
 

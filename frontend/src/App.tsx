@@ -298,6 +298,14 @@ export default function App() {
           } else if (msg.event === "downloads_changed") {
             fetchFiles();
             fetchPlaylists();
+          } else if (msg.event === "playlist_updated") {
+            // Playlist créée en même temps qu'un téléchargement : les
+            // morceaux manquants viennent d'être ajoutés.
+            fetchPlaylists();
+            const added = Number((msg.data as any)?.added ?? 0);
+            if (added > 0) {
+              addToast("success", t("Playlist updated"), `${added} ${t("tracks added")}`);
+            }
           }
         } catch (err) {
           console.error("Failed to parse WS message:", err);
@@ -333,16 +341,30 @@ export default function App() {
       });
 
       if (res.ok) {
-        let label = t("Track / Playlist Import Started");
-        if (url.includes("/artist/")) {
-          label = t("Artist Discography Import Started");
+        const data = await res.json().catch(() => ({}));
+        // Lien playlist : le backend a créé la playlist en même temps que le
+        // téléchargement — morceaux déjà sur disque ajoutés, manquants en
+        // cours de téléchargement.
+        const pl = data?.playlist;
+        if (pl?.name) {
+          addToast(
+            "success",
+            t("Playlist created"),
+            `${pl.name} — ${pl.added_now ?? 0} ${t("tracks added")} · ${pl.to_download ?? 0} ${t("to download")}`
+          );
+          fetchPlaylists();
+        } else {
+          let label = t("Track / Playlist Import Started");
+          if (url.includes("/artist/")) {
+            label = t("Artist Discography Import Started");
+          }
+          const orderText = order === "reverse" ? t("Newest Added First") : t("Original Order");
+          addToast(
+            "info",
+            label,
+            `${t("Downloading")} (${bitrate}, ${orderText}) ${t("MP3 + Metadata + Clean Lyrics...")}`
+          );
         }
-        const orderText = order === "reverse" ? t("Newest Added First") : t("Original Order");
-        addToast(
-          "info",
-          label,
-          `${t("Downloading")} (${bitrate}, ${orderText}) ${t("MP3 + Metadata + Clean Lyrics...")}`
-        );
         fetchTasks();
       } else {
         const data = await res.json();
@@ -360,12 +382,21 @@ export default function App() {
       const res = await apiFetch(`${getApiUrl()}/downloads?path=${encodeURIComponent(path)}`, {
         method: "DELETE",
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         addToast("success", t("File Removed"), t('Removed "{name}" from storage.', { name: path }));
+        // Une autre copie du même morceau existe (ex. on supprime le fichier
+        // album, il reste le single) : les stats ont été recollées dessus.
+        if (data?.stats_migrated?.to) {
+          addToast(
+            "info",
+            t("Stats kept"),
+            t("Stats transferred to \"{to}\"", { to: data.stats_migrated.to })
+          );
+        }
         fetchFiles();
         fetchPlaylists();
       } else {
-        const data = await res.json();
         addToast("error", t("Delete Error"), data.error || t("Error"));
       }
     } catch (err) {
@@ -892,7 +923,41 @@ export default function App() {
     refreshFiles: fetchFiles,
     currentPlayingPath: currentTrack ? currentTrack.rel_path : null,
     isPlaying,
+
+    // Derived library data
+    filteredFiles,
+    likedFiles,
+    recent: recentResolved,
+    top: topResolved,
+    totalPlays: recentHistory.length,
+    pinned: pinnedEntries,
+    artists,
+    albums,
+
+    // Pins
+    isPinned,
+    togglePin,
+
+    // Lyrics drawer
+    openLyricsDrawer: handleSelectTrackForDrawer,
+
+    // File & playlist operations
+    deleteFile: handleDeleteFile,
+    addToPlaylist: addTrackToPlaylist,
+    createPlaylist: handleCreateAndAdd,
+    removeFromPlaylist: removeTrackFromPlaylist,
+    reorderPlaylist: reorderPlaylistTrack,
+    deletePlaylist,
+    openPlaylist,
   };
+
+  // Resolve the active nav to a registry view id: static views map 1:1,
+  // dynamic routes (playlist / artist / album details) match by prefix.
+  const routeViewId = (() => {
+    if (activeNav.startsWith("pl:")) return "playlist";
+    if (activeNav.startsWith("artist:") || activeNav.startsWith("album:")) return "collection";
+    return activeNav;
+  })();
 
   return (
     <main className="h-screen w-screen bg-[#161618] flex overflow-hidden font-sans relative">
@@ -956,157 +1021,8 @@ export default function App() {
         <div className="flex-1 overflow-y-auto pb-32">
           {!configured ? (
             <OnboardingView onFinish={finishOnboarding} />
-          ) : activeNav === "home" ? (
-            <HomeView
-              files={files}
-              recent={recentResolved}
-              top={topResolved}
-              liked={likedFiles}
-              likes={likes}
-              totalPlays={recentHistory.length}
-              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-              isPlaying={isPlaying}
-              onPlayList={playFromList}
-              onToggleLike={toggleLike}
-              onNavChange={setActiveNav}
-              getApiUrl={getApiUrl}
-              pinned={pinnedEntries}
-              onPlayNext={playNext}
-              onSelectTrack={handleSelectTrackForDrawer}
-              onDelete={handleDeleteFile}
-              playlists={playlists}
-              onAddToPlaylist={addTrackToPlaylist}
-              onCreatePlaylist={handleCreateAndAdd}
-            />
-          ) : activeNav === "sync" ? (
-            <PluginHostView viewId="sync" app={app} />
-          ) : activeNav === "lyrics" ? (
-            <LyricsManagerView
-              files={files}
-              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-              isPlaying={isPlaying}
-              onPlayTrack={handleTrackPlay}
-              onSelectTrack={handleSelectTrackForDrawer}
-              getApiUrl={getApiUrl}
-              onRefreshFiles={fetchFiles}
-            />
-          ) : activeNav === "downloads" ? (
-            <PluginHostView viewId="downloads" app={app} />
-          ) : activeNav === "stats" ? (
-            <PluginHostView viewId="stats" app={app} />
-          ) : activeNav === "marketplace" ? (
-            <MarketplaceView />
-          ) : activeNav === "artists" ? (
-            <CollectionGrid
-              kind="artist"
-              entries={artists}
-              getApiUrl={getApiUrl}
-              onOpen={(name) => handleNavChange(`artist:${encodeURIComponent(name)}`)}
-              isPinned={isPinned}
-              onTogglePin={togglePin}
-              onPlayAll={(paths) => playFromList(paths, 0)}
-              onPlayNext={playNext}
-            />
-          ) : activeNav === "albums" ? (
-            <CollectionGrid
-              kind="album"
-              entries={albums}
-              getApiUrl={getApiUrl}
-              onOpen={(name) => handleNavChange(`album:${encodeURIComponent(name)}`)}
-              isPinned={isPinned}
-              onTogglePin={togglePin}
-              onPlayAll={(paths) => playFromList(paths, 0)}
-              onPlayNext={playNext}
-            />
-          ) : artistName ? (
-            <CollectionDetail
-              kind="artist"
-              name={artistName}
-              files={artistFiles}
-              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-              isPlaying={isPlaying}
-              onPlayTrack={handleTrackPlay}
-              onPlayAll={(paths) => playFromList(paths, 0)}
-              onPlayNext={playNext}
-              onSelectTrack={handleSelectTrackForDrawer}
-              onDelete={handleDeleteFile}
-              getApiUrl={getApiUrl}
-              playlists={playlists}
-              onAddToPlaylist={addTrackToPlaylist}
-              onCreatePlaylist={createPlaylist}
-              likes={likes}
-              onToggleLike={toggleLike}
-              isPinned={isPinned}
-              onTogglePin={togglePin}
-            />
-          ) : albumName ? (
-            <CollectionDetail
-              kind="album"
-              name={albumName}
-              files={albumFiles}
-              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-              isPlaying={isPlaying}
-              onPlayTrack={handleTrackPlay}
-              onPlayAll={(paths) => playFromList(paths, 0)}
-              onPlayNext={playNext}
-              onSelectTrack={handleSelectTrackForDrawer}
-              onDelete={handleDeleteFile}
-              getApiUrl={getApiUrl}
-              playlists={playlists}
-              onAddToPlaylist={addTrackToPlaylist}
-              onCreatePlaylist={createPlaylist}
-              likes={likes}
-              onToggleLike={toggleLike}
-              isPinned={isPinned}
-              onTogglePin={togglePin}
-            />
-          ) : playlistId ? (
-            <PlaylistView
-              playlist={playlistDetail}
-              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-              isPlaying={isPlaying}
-              onPlayTrack={handleTrackPlay}
-              onPlayNext={playNext}
-              onSelectTrack={handleSelectTrackForDrawer}
-              onRemoveTrack={(path) => removeTrackFromPlaylist(playlistId, path)}
-              onReorder={(path, toIndex) => reorderPlaylistTrack(playlistId, path, toIndex)}
-              onDeletePlaylist={() => deletePlaylist(playlistId)}
-              onPlayAll={() =>
-                playlistDetail && playFromList(playlistDetail.tracks.map((f) => f.rel_path), 0)
-              }
-              getApiUrl={getApiUrl}
-              playlists={playlists}
-              onAddToPlaylist={addTrackToPlaylist}
-              onCreatePlaylist={handleCreateAndAdd}
-              likes={likes}
-              onToggleLike={toggleLike}
-              isPinned={isPinned}
-              onTogglePin={togglePin}
-              libraryFiles={files}
-              suggestArtists={playlistDetail?.tracks.map((f) => f.artist).filter(Boolean) as string[]}
-            />
           ) : (
-            <TrackList
-              files={
-                activeNav === "liked"
-                  ? likedFiles.filter((f) => filteredFiles.includes(f))
-                  : filteredFiles
-              }
-              activeTasks={tasks}
-              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
-              isPlaying={isPlaying}
-              onTrackPlay={handleTrackPlay}
-              onPlayList={playFromList}
-              onPlayNext={playNext}
-              onSelectTrack={handleSelectTrackForDrawer}
-              onDelete={handleDeleteFile}
-              getApiUrl={getApiUrl}
-              playlists={playlists}
-              onAddToPlaylist={addTrackToPlaylist}
-              onCreatePlaylist={handleCreateAndAdd}
-              likes={likes}
-              onToggleLike={toggleLike}
-            />
+            <PluginHostView viewId={routeViewId} app={app} />
           )}
         </div>
       </div>

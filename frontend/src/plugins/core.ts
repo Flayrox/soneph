@@ -8,14 +8,20 @@ import {
   Sparkles,
   Users,
   Disc3,
+  ListMusic,
 } from "lucide-react";
+import { HomeView } from "@/components/HomeView";
+import { LibraryView } from "@/components/LibraryView";
+import { LyricsManagerView } from "@/components/LyricsManagerView";
+import { PlaylistView } from "@/components/PlaylistView";
 import { SyncSettingsView } from "@/components/SyncSettingsView";
+import { MarketplaceView } from "@/components/MarketplaceView";
+import { ArtistsView, AlbumsView, CollectionDetailView } from "@/components/CollectionViews";
 import type { PluginManifest } from "@/framework/plugin.types";
 
 // The built-in plugin: the library, playback and lyrics shell. Always on.
-// Views migrated to the `{ app }` contract declare their component here
-// and are rendered through the host; the others are still rendered
-// directly by App.tsx with host-owned data.
+// Every view is declared with its component and rendered through the host
+// with the single `{ app }` prop — App.tsx only routes nav ids to the host.
 export const corePlugin: PluginManifest = {
   id: "core",
   nameKey: "Core",
@@ -30,12 +36,14 @@ export const corePlugin: PluginManifest = {
         labelKey: "Home",
         section: "music",
         icon: HomeIcon,
+        component: HomeView,
       },
       {
         id: "songs",
         labelKey: "All Music",
         section: "music",
         icon: Music,
+        component: LibraryView,
         badge: (app) => app.files.length,
       },
       {
@@ -43,24 +51,28 @@ export const corePlugin: PluginManifest = {
         labelKey: "Liked tracks",
         section: "music",
         icon: Heart,
+        component: LibraryView,
       },
       {
         id: "artists",
         labelKey: "Artists",
         section: "music",
         icon: Users,
+        component: ArtistsView,
       },
       {
         id: "albums",
         labelKey: "Albums",
         section: "music",
         icon: Disc3,
+        component: AlbumsView,
       },
       {
         id: "lyrics",
         labelKey: "Lyrics",
         section: "library",
         icon: FileText,
+        component: LyricsManagerView,
         badge: (app) => {
           const synced = app.files.filter((f) => f.lyrics_type === "synced").length;
           return `${synced}/${app.files.length}`;
@@ -78,6 +90,25 @@ export const corePlugin: PluginManifest = {
         labelKey: "Marketplace",
         section: "library",
         icon: Puzzle,
+        component: MarketplaceView,
+      },
+
+      // ── Dynamic routes (host matches the nav prefix, not in the sidebar) ──
+      {
+        id: "playlist",
+        labelKey: "Playlist",
+        section: "playlists",
+        icon: ListMusic,
+        component: PlaylistView,
+        hidden: true,
+      },
+      {
+        id: "collection",
+        labelKey: "Collection",
+        section: "music",
+        icon: Disc3,
+        component: CollectionDetailView,
+        hidden: true,
       },
     ],
   },

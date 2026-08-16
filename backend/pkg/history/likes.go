@@ -73,6 +73,19 @@ func (s *LikesStore) Remove(track string) (bool, error) {
 	return removed, s.save(m)
 }
 
+// Rename migre un like d'un ancien chemin vers un nouveau (un morceau
+// déplacé, ex. single → album, garde son cœur).
+func (s *LikesStore) Rename(oldPath, newPath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.load()
+	if m[oldPath] {
+		delete(m, oldPath)
+		m[newPath] = true
+		_ = s.save(m)
+	}
+}
+
 // List returns the sorted list of liked rel_paths.
 func (s *LikesStore) List() []string {
 	s.mu.Lock()

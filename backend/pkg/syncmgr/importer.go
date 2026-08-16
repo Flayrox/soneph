@@ -21,6 +21,7 @@ type Status struct {
 	AutoAddDir    string `json:"auto_add_dir,omitempty"`
 	ImportedCount int    `json:"imported_count"`
 	Pid           int    `json:"pid,omitempty"`
+	ScriptPath    string `json:"script_path,omitempty"`
 	StateFile     string `json:"state_file"`
 	LogFile       string `json:"log_file"`
 	Error         string `json:"error,omitempty"`
@@ -39,11 +40,24 @@ type Importer struct {
 }
 
 func findScript() string {
-	for _, p := range []string{
+	candidates := []string{
+		// Dev : lancé depuis backend/ (repo root)
 		"../scripts/watch_and_import.sh",
 		"scripts/watch_and_import.sh",
+		// Docker
 		"/app/scripts/watch_and_import.sh",
-	} {
+	}
+	// App packagée : le binaire Go vit dans Resources/bin/ et le script est
+	// copié dans Resources/scripts/ par desktop/build.sh. Le cwd d'Electron
+	// n'est pas fiable, on résout donc par rapport au binaire lui-même.
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "scripts", "watch_and_import.sh"),
+			filepath.Join(exeDir, "..", "scripts", "watch_and_import.sh"),
+		)
+	}
+	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
@@ -106,6 +120,7 @@ func (m *Importer) Status() Status {
 		StateFile:    m.stateFile,
 		LogFile:      m.logFile,
 	}
+	st.ScriptPath = m.scriptPath
 	if runtime.GOOS != "darwin" {
 		st.Error = "L'auto-import n'est disponible que sur macOS (l'app Musique doit être installée)."
 		return st

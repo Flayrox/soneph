@@ -1,163 +1,198 @@
-# 🎵 son<span text-color="rose">ephe</span> — High Quality Music Downloader & Auto-Sync
+<div align="center">
 
-> **soneph** *(son + ephe)* est une plateforme moderne et ultra-rapide d'automatisation de téléchargement de musique (320kbps + métadonnées ID3v2 + paroles synchronisées `.lrc`) et de synchronisation transparente P2P vers tes apps de lecture (Musique / iPhone).
+# 🎵 Soneph
 
----
+**Ta bibliothèque Spotify, en MP3 320 kbps — avec métadonnées complètes, paroles synchronisées et import automatique dans l'app Musique.**
 
-## ✨ Features principales
+![Soneph](Sonephe.png)
 
-- 🎧 **Qualité 320 kbps HD** : Extraction automatique avec tags complets (Pochette, Artiste, Album, Paroles LRC).
-- 🎤 **Lecteur Karaoké intégré** : Suivi des paroles synchronisées en direct dans le Dashboard Web.
-- ❤️ **Likes & Accueil** : Cœurs sur chaque morceau, vue **Accueil** avec dernières écoutes, top morceaux et favoris (historique persistant côté serveur).
-- 🎵 **Playlists** : Création, ajout/retrait de morceaux et lecture en boucle depuis la bibliothèque.
-- 🪟 **Interface Liquid Glass** : Effet de verre liquide (réfraction + flou) via `liquid-glass-react` sur le lecteur et la barre d'import.
-- ⚡ **Backend Go (Gin)** : Moteur haute performance gérant les files d'attente et WebSockets temps réel.
-- 📱 **Synchronisation iOS & Windows** : Intégration P2P via Syncthing pour injecter directement les sons dans tes apps de lecture sans câble.
-- 🐳 **Docker Native** : Déploiement en 1 seule commande avec Docker Compose — un seul conteneur web (le frontend Vite est embarqué dans le binaire Go).
+</div>
+
+Soneph est une app **macOS native** (Electron) + un **backend Go** qui télécharge tes playlists / albums / singles Spotify en MP3 de haute qualité, range tout proprement (`Artiste/Album/Titre.mp3`), écrit **toutes les métadonnées ID3** (pochette, piste, genre, producteurs, auteurs…), récupère les **paroles synchronisées**, et peut **importer automatiquement** chaque morceau dans l'app Musique d'Apple.
 
 ---
 
-## 🚀 Démarrage Rapide (Docker)
+## ✨ Fonctionnalités
+
+- **Téléchargement Spotify** (spotdl) en **128 / 192 / 320 kbps**, playlists, albums, artistes ou tracks uniques
+- **Métadonnées ID3 complètes** : pochette, album, artiste album, année, genre, piste, disque, auteurs, **producteurs & musiciens** (TIPL/TMCL), ISRC, copyright
+- **Single → Album sans re-téléchargement** : quand tu télécharges l'album d'un single déjà présent, le fichier est *déplacé* vers le bon dossier et ses tags sont réécrits — l'audio n'est jamais re-téléchargé
+- **Paroles synchronisées** (`.lrc` + tags ID3) via lrclib / netease / musixmatch…, avec **source enregistrée dans les tags** (`LYRICS_SOURCE`) pour ne re-télécharger que ce qui peut être amélioré (texte brut → version synchronisée)
+- **Création automatique de playlist** : coller un lien de playlist Spotify télécharge les sons manquants **et** crée la playlist — les morceaux déjà sur disque y sont ajoutés immédiatement, sans re-téléchargement
+- **Stats qui suivent tes fichiers** : historique d'écoutes, likes et playlists sont ré-attachés automatiquement quand un fichier bouge (single → album), quand tu supprimes un doublon, ou quand tu supprimes un fichier dont une autre copie existe
+- **Panneau « Plus de détails »** (clic droit) : qualité réelle, source des paroles, artistes, producteurs, lien Spotify
+- **Auto-import dans l'app Musique** (macOS) : chaque nouveau fichier est copié dans « Automatically Add to Music » avec ses paroles — zéro doublon
+- **Playlists** : création, ajout/retrait, réordonnancement, export `.m3u8`
+- **UI native macOS** : dark mode, glassmorphism, queue de téléchargement en temps réel (WebSocket), bibliothèque, artistes, albums, favoris, top écoutes
+
+---
+
+## 📥 Installation (macOS)
+
+> L'app cible **macOS (Apple Silicon / Intel)** avec l'app **Musique** installée. Python et `spotdl` sont requis pour le téléchargement (voir [Dépendances](#-dépendances)).
+
+1. Télécharge le **DMG** depuis la page [Releases](https://github.com/Flayrox/soneph/releases)
+2. Ouvre le DMG et glisse **Soneph** dans *Applications*
+3. Première ouverture : clic droit → *Ouvrir* si Gatekeeper proteste (app non notarisée)
+
+### Dépendances
+
+Le téléchargement repose sur `spotdl` (Python). Installe-le une fois :
 
 ```bash
-# 1. Cloner le dépôt
-git clone https://github.com/votre-compte/soneph.git
-cd soneph
+brew install python
+pipx install spotdl          # ou : pip install spotdl
+```
 
-# 2. Lancer la stack complète avec Docker Compose
+Soneph utilise l'interpréteur Python de `spotdl` lui-même pour ses scripts (tags ID3, paroles) — rien d'autre à installer.
+
+---
+
+## 🚀 Utilisation rapide
+
+1. **Ouvre Soneph** — ta bibliothèque se trouve dans `~/Music/soneph` (les morceaux déjà présents y apparaissent automatiquement)
+2. **Colle un lien Spotify** dans la barre du haut :
+   - *Playlist* → les sons manquants sont téléchargés **et** la playlist est créée en même temps (les sons déjà là sont ajoutés direct)
+   - *Album / Track / Artiste* → téléchargement simple
+3. **Sync & Réglages → Start** pour activer l'auto-import : chaque morceau arrive dans l'app **Musique** avec ses paroles
+4. Clic droit sur un morceau → **ℹ️ Plus de détails** (qualité, source des paroles, producteurs…), **ajouter à une playlist**, etc.
+
+### Transférer sur iPhone
+
+- **Câble** : Finder → iPhone → Musique → « Synchroniser la musique » (gratuit)
+- **Sans câble** : « Synchroniser la bibliothèque » (iCloud, nécessite Apple Music / iTunes Match)
+
+---
+
+## 💻 Développement local
+
+### Prérequis
+
+| Outil | Version |
+|---|---|
+| Go | 1.22+ |
+| Node.js | 18+ |
+| Python | 3.11+ (`spotdl`, voir ci-dessus) |
+| fswatch (optionnel) | `brew install fswatch` — watcher instantané au lieu du polling |
+
+### Lancer en dev (backend + frontend)
+
+```bash
+make dev        # backend Go sur :8080 + dev server Vite sur :5173
+```
+
+- API + UI : `http://localhost:8080`
+- Dev server Vite : `http://localhost:5173` (hot reload)
+
+### Tester / vérifier
+
+```bash
+make test       # tests Go
+make vet        # go vet
+make build      # frontend embarqué + binaire Go dans backend/bin/
+```
+
+---
+
+## 🖥️ Build de l'app macOS
+
+```bash
+make desktop    # frontend → Go → icône → .app Electron
+```
+
+Résultat : `desktop/dist/Soneph-darwin-arm64/Soneph.app`. Pour générer le **DMG** d'installation :
+
+```bash
+desktop/make-dmg.sh         # → desktop/dist/Soneph-<version>.dmg
+```
+
+---
+
+## 🐳 Déploiement serveur (Docker)
+
+Soneph fonctionne aussi en **serveur headless** (VPS) : l'UI est embarquée dans le binaire, la distribution vers tes appareils se fait alors via **Syncthing**.
+
+```bash
 docker compose up -d --build
 ```
 
-### 🌐 Endpoints par défaut
-- 🎨 **Dashboard Web + API (même origine)** : `http://localhost:8080`
-- 🔄 **Console Syncthing UI** : `http://localhost:8384`
+| Variable | Défaut | Description |
+|---|---|---|
+| `PORT` | `8080` | Port HTTP |
+| `DOWNLOAD_DIR` | `./downloads` | Dossier de la bibliothèque |
+| `SONEPH_TOKEN` | *(vide)* | Si défini, protège l'API par Bearer token |
+| `SONEPH_ENGINE` | `spotdl` | Binaire du moteur de téléchargement |
+| `SONEPH_THREADS` | `6` | Téléchargements parallèles |
+
+Docker monte `./downloads` en volume : tes fichiers survivent aux redémarrages et peuvent être partagés avec Syncthing.
 
 ---
 
-## 🛠️ Stack Technique
+## 🗂️ Structure du projet
 
-| Composant | Technologie |
-| :--- | :--- |
-| **Frontend** | Vite + React 19, TypeScript, Tailwind CSS, `liquid-glass-react` (SPA 100 % client, embarquée dans le binaire Go) |
-| **Backend** | Go (Gin Framework), WebSockets, `go:embed` pour servir le frontend |
-| **Downloader** | Moteur de téléchargement Python 3.11 + FFmpeg |
-| **Sync Engine** | Syncthing P2P |
-| **Container** | Docker & Docker Compose |
+```
+├── backend/            # Serveur Go (gin) + scripts Python
+│   ├── pkg/
+│   │   ├── downloader/ # moteur spotdl (file, stats, métadonnées)
+│   │   ├── handler/    # API REST + WebSocket
+│   │   ├── history/    # écoutes, likes
+│   │   ├── playlists/  # playlists JSON
+│   │   ├── storage/    # scan de la bibliothèque, doublons
+│   │   └── syncmgr/    # watcher d'auto-import Musique
+│   ├── *.py            # helpers : tags ID3, paroles, identité, playlist…
+│   └── web/dist/       # frontend compilé (embarqué dans le binaire)
+├── frontend/           # UI React + Vite + TypeScript
+├── desktop/            # app Electron macOS + scripts de build
+├── scripts/            # dev.sh, watch_and_import.sh…
+└── downloads/          # ta bibliothèque (jamais commitée)
+```
+
+### Scripts Python (backend/)
+
+| Script | Rôle |
+|---|---|
+| `fast_filter.py` | détecte instantanément les morceaux déjà sur disque |
+| `precreate_dirs.py` | pré-crée les dossiers d'album (single → album) |
+| `tag_soneph.py` | marqueur `TXXX:SONEPH` + source + qualité réelle |
+| `lyrics_retry.py` | paroles synchronisées + source enregistrée |
+| `embed_lyrics.py` | paroles dans les tags ID3 (USLT/SYLT) |
+| `scan_identity.py` | carte URL Spotify (WOAS) → chemins |
+| `playlist_from_url.py` | résolution playlist → morceaux présents/manquants |
+| `file_details.py` | dump complet des métadonnées ID3 |
 
 ---
 
-## 💻 Développement Local
+## 📦 Release (open source)
 
-Le frontend tourne sur Vite (`:5173`) et le backend Go sur `:8080`. Le dev server Vite proxy automatiquement `/api` (HTTP + WebSocket) vers le backend, donc tout est same-origin côté navigateur.
-
-### Un seul script (recommandé)
-```bash
-./scripts/dev.sh
-# → Frontend : http://localhost:5173
-# → API      : http://localhost:8080
-# Ctrl+C pour tout arrêter
-```
-
-Le script lance les deux serveurs, installe les dépendances frontend au premier lancement, surveille les ports et arrête tout proprement.
-
-### Réglages téléchargement (variables d'environnement)
-
-| Variable | Défaut | Rôle |
-| :--- | :--- | :--- |
-| `SONEPH_WORKERS` | `4` | Nombre de processus du moteur en parallèle (un par URL dans la file). Trop élevé → rate limiting des plateformes. |
-| `SONEPH_THREADS` | `6` | Chansons téléchargées en parallèle par processus du moteur. |
-| `SONEPH_ENGINE` | *(vide)* | Remplace le binaire du moteur de téléchargement (utile si tu l'installes sous un autre nom). |
-| `DOWNLOAD_DIR` | `./downloads` | Dossier de destination (en Docker : `/app/downloads`). |
-| `SONEPH_TOKEN` | *(vide)* | Si défini, **protège toute l'API** : chaque requête `/api/*` (et le WebSocket) doit présenter le token. |
-| `SONEPH_HISTORY_FILE` | `~/.config/soneph/history.json` | Fichier d'historique d'écoute (dernières écoutes + top). |
-| `SONEPH_LIKES_FILE` | `~/.config/soneph/likes.json` | Fichier des morceaux aimés. |
-| `LOG_FORMAT` | `text` | `json` pour des logs structurés exploitables par un outil. |
-
-> ⚡ Les paroles sont désormais récupérées **en arrière-plan** après le téléchargement : l'audio arrive vite, les `.lrc` suivent sans bloquer la file d'attente.
-
-> 💾 La file d'attente est **persistée** (`queue.json`) : si le backend redémarre, les téléchargements en cours sont re-filés automatiquement.
-
-### 🔒 Sécuriser l'API (important si tu exposes le serveur)
-
-L'API est **ouverte par défaut** (mode local). Dès que ton backend est accessible depuis l'extérieur (VPS, LAN), protège-le :
-
-1. **Token** : définis `SONEPH_TOKEN` (dans le `.env` du compose, ou l'env du process). Toute requête `/api/*` devra alors passer par `Authorization: Bearer <token>` (ou `?token=` pour le WebSocket). Dans l'UI → **Sync & Réglages → API Token**, pour enregistrer le token dans ton navigateur.
-2. **HTTPS** : derrière un reverse proxy. Exemple minimal avec Caddy :
-
-```caddyfile
-soneph.example.com {
-    reverse_proxy localhost:8080
-}
-```
+Tout est prêt pour publier sur GitHub :
 
 ```bash
-# Docker : monte un volume pour que Caddy gère les certificats
-caddy run --config Caddyfile
+# 1. Versionner
+git tag v1.0.0 && git push origin v1.0.0
+
+# 2. Build complet + DMG + Release GitHub (nécessite gh : brew install gh)
+./scripts/release.sh v1.0.0
 ```
 
-3. **Rate limiting** : déjà actif côté API (120 req/min/IP) — une protection de base contre le bourrage.
+`release.sh` fait : build frontend + Go + app Electron, génère le **DMG**, crée la **GitHub Release** avec le DMG en asset (notes générées à partir du changelog). Sans `gh`, il produit juste le DMG — tu le déposes à la main sur la page Release.
 
-> 💡 La page web elle-même reste publique (elle ne fait rien sans token) ; tu peux aussi la protéger entièrement avec l'auth basic de Caddy si tu préfères.
-
-### Playlists 🎧
-
-Une section **Playlists** dans la barre latérale permet de créer des playlists, d'y ajouter n'importe quel morceau (bouton **+** sur une ligne de la bibliothèque), de les écouter dans l'ordre (bouton **Play All**) et de les supprimer. Les playlists sont stockées en JSON côté serveur (`~/.config/soneph/playlists/`) et survivent aux redémarrages.
-
-### Sections de l'UI
-
-- **Toutes les musiques** : toute la bibliothèque (recherche, tri, lecture)
-- **Playlists** : tes playlists
-- **Téléchargements** : file d'attente, progression, morceaux récents et échecs
-- **Paroles** : gestion des paroles synchronisées · **Sync & Réglages** : auto-import + réglages + token
-
-### Réglages depuis l'UI
-
-La vue **Sync & Réglages** (barre latérale) permet de :
-- démarrer / arrêter l'**auto-import** (watcher macOS, sans doublon),
-- régler les **threads / workers** de téléchargement sans toucher au code.
-
-> Sur macOS, l'auto-import copie les nouveaux fichiers vers le dossier « Automatically Add to Music » de l'app Musique. Sur un VPS (Linux), il est désactivé — la distribution se fait via Syncthing.
-
-### À la main (alternative)
-```bash
-# Terminal 1 — Backend (Go)
-cd backend
-go run main.go
-
-# Terminal 2 — Frontend (Vite)
-cd frontend
-npm install
-npm run dev   # http://localhost:5173
-```
-
-### Makefile
-```bash
-make dev        # = scripts/dev.sh (backend + Vite)
-make build      # frontend embarqué + binaire Go dans backend/bin/
-make test       # tests Go du backend
-make vet
-```
-
-> 💡 Pour builder le frontend dans le binaire Go (comme en production) : `make build` (ou `cd frontend && npm run build:go`) — copie `dist/` vers `backend/web/dist/` que le backend embarque via `go:embed`.
-
-### 🧪 Tests
-```bash
-cd backend && go test ./...
-```
-Couvre : le parsing de la sortie du moteur de téléchargement (le point fragile), le scanner de bibliothèque (avec la protection anti-`../`), la persistance/reprise de la file d'attente, l'auth token + rate limiting, et la config.
-
-### ⚠️ Nettoyage git — Syncthing
-Les fichiers runtime de Syncthing (`syncthing_config/index-v2/main.db`, `syncthing.lock`) ne devraient **jamais** être commités — ils bougent à chaque sync et polluent l'historique. Si tu les as déjà commités :
-
-```bash
-git rm -r --cached syncthing_config   # retire de git, garde les fichiers sur disque
-# puis commit le .gitignore + cette suppression
-```
-
-Ils sont désormais ignorés par `.gitignore`.
+> ⚠️ Le DMG est un asset de Release GitHub, **pas** un fichier du dépôt git (265+ Mo).
 
 ---
 
-<p center>
-Fait avec ❤️ par <b>son<span style="color: #f43f5e;">ephe</span></b>
-</p>
+## 🧪 Tests
+
+```bash
+make test       # go test ./... (backend)
+cd frontend && npm run typecheck
+```
+
+---
+
+## 📜 Licence
+
+MIT — voir [LICENSE](LICENSE). *Non affilié à Spotify. Pour un usage personnel de musique dont tu détiens les droits.*
+
+---
+
+*Documentation historique (architecture détaillée de l'ancien backend) : [README_legacy.md](README_legacy.md).*

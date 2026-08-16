@@ -1,0 +1,16 @@
+{
+  "name": "soneph-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enveloppe macOS de soneph — fenêtre native autour du serveur Go + frontend",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "./build.sh",
+    "pack": "electron-packager . \"Soneph\" --platform=darwin --arch=arm64 --icon=resources/icon.icns --out=dist --overwrite --app-bundle-id=com.soneph.app --app-version=1.0.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^37.2.0"
+  }
+}

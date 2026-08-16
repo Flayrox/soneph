@@ -206,6 +206,55 @@ func (s *Store) RemoveTrack(id, track string) (Playlist, error) {
 	return p, nil
 }
 
+// RenameTrack migre un morceau déplacé (ex. single → album) vers son
+// nouveau chemin dans toutes les playlists, en gardant sa position. Si le
+// nouveau chemin est déjà présent, l'ancien est simplement retiré (pas de
+// doublon).
+func (s *Store) RenameTrack(oldPath, newPath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		id := strings.TrimSuffix(e.Name(), ".json")
+		p, err := s.load(id)
+		if err != nil {
+			continue
+		}
+		changed := false
+		for i := range p.Tracks {
+			if p.Tracks[i] == oldPath {
+				if !containsString(p.Tracks, newPath) {
+					p.Tracks[i] = newPath
+				} else {
+					p.Tracks = append(p.Tracks[:i], p.Tracks[i+1:]...)
+				}
+				changed = true
+				break
+			}
+		}
+		if changed {
+			p.UpdatedAt = time.Now()
+			_ = s.save(p)
+		}
+	}
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 // Reorder replaces the playlist's track order with the given list (used by
 // drag-and-drop reordering). Unknown paths are dropped; the rest keep the
 // provided order.

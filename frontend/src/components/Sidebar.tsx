@@ -147,8 +147,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // Views visible in the sidebar: core views are always shown, plugin views
-  // only while their plugin is enabled.
+  // only while their plugin is enabled. Hidden views (dynamic routes like
+  // playlist/collection details) are never listed here.
   const views = pluginViews().filter((v) => {
+    if (v.hidden) return false;
     const plugin = pluginForView(v.id);
     return plugin ? plugin.core || isEnabled(plugin.id) : false;
   });

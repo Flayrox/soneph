@@ -85,6 +85,25 @@ func (s *Store) Add(track string, duration int) {
 	_ = s.save(recs)
 }
 
+// Rename migre l'historique d'un ancien chemin vers un nouveau (un morceau
+// déplacé, ex. single → album, garde ses écoutes).
+func (s *Store) Rename(oldPath, newPath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	recs := s.load()
+	changed := false
+	for i := range recs {
+		if recs[i].Path == oldPath {
+			recs[i].Path = newPath
+			changed = true
+		}
+	}
+	if changed {
+		_ = s.save(recs)
+	}
+}
+
 // Recent returns the last n records (oldest-last order is kept).
 func (s *Store) Recent(limit int) []Record {
 	s.mu.Lock()

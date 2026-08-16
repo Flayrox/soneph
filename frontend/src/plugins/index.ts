@@ -4,7 +4,9 @@ import { registerPlugin } from "@/framework/pluginRegistry";
 import { corePlugin } from "./core";
 import { importPlugin } from "./import";
 import { statsPlugin } from "./stats";
+import { examplePlugin } from "./example";
 
 registerPlugin(corePlugin);
 registerPlugin(importPlugin);
 registerPlugin(statsPlugin);
+registerPlugin(examplePlugin);

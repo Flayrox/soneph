@@ -113,7 +113,29 @@ def fetch_all_tracks(media_url):
         url = f'{base}/{media_type}/{media_id}'
         html = fetch_page(url)
         if html:
-            return parse_tracklist_from_html(html)
+            tracks = parse_tracklist_from_html(html)
+            if tracks:
+                return tracks
+            # La page d'un track n'a pas de trackList : on construit la
+            # liste depuis l'entité elle-même.
+            m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
+            if m:
+                try:
+                    data = json.loads(m.group(1))
+                    ent = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+                    title = (ent.get('title') or '').strip()
+                    artists = ent.get('artists') or []
+                    artist = ', '.join(a.get('name', '') for a in artists if isinstance(a, dict) and a.get('name')) if isinstance(artists, list) else str(artists or '')
+                    uri = ent.get('uri', '')
+                    if title:
+                        return [{
+                            'title': title,
+                            'artist': artist.strip(),
+                            'query': f"{artist} - {title}" if artist.strip() else title,
+                            'uri': uri,
+                        }]
+                except Exception:
+                    pass
         return []
 
     # For playlists/albums: paginate in steps of 100

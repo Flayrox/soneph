@@ -55,6 +55,35 @@ func TestAddRemoveTrackNoDuplicates(t *testing.T) {
 	}
 }
 
+// TestRenameTrack: un morceau déplacé (single → album) garde sa place dans
+// les playlists sous son nouveau chemin.
+func TestRenameTrack(t *testing.T) {
+	s := newTestStore(t)
+	p, _ := s.Create("Chill")
+	_, _ = s.AddTrack(p.ID, "Ninho/Vrais/Vrais.mp3.mp3")
+	_, _ = s.AddTrack(p.ID, "Jul/Zone/Zone.mp3.mp3")
+
+	s.RenameTrack("Ninho/Vrais/Vrais.mp3.mp3", "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3")
+
+	p, _ = s.Get(p.ID)
+	if len(p.Tracks) != 2 {
+		t.Fatalf("want 2 tracks, got %+v", p.Tracks)
+	}
+	if p.Tracks[0] != "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3" {
+		t.Errorf("want renamed track first, got %+v", p.Tracks)
+	}
+
+	// Si le nouveau chemin existe déjà, pas de doublon : on retire l'ancien.
+	p2, _ := s.Create("NoDup")
+	_, _ = s.AddTrack(p2.ID, "Art/Al/old.mp3")
+	_, _ = s.AddTrack(p2.ID, "Art/Al/new.mp3")
+	s.RenameTrack("Art/Al/old.mp3", "Art/Al/new.mp3")
+	p2, _ = s.Get(p2.ID)
+	if len(p2.Tracks) != 1 || p2.Tracks[0] != "Art/Al/new.mp3" {
+		t.Fatalf("want single new track, got %+v", p2.Tracks)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	s := newTestStore(t)
 	p, _ := s.Create("X")

@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { Play, ListMusic, Heart, MessageSquareQuote, Plus, Trash2, ChevronLeft, ListPlus } from "lucide-react";
+import {
+  Play,
+  ListMusic,
+  Heart,
+  MessageSquareQuote,
+  Plus,
+  Trash2,
+  ChevronLeft,
+  ListPlus,
+  Info,
+  Loader2,
+  ExternalLink,
+} from "lucide-react";
 import { cleanTitle } from "@/format";
 import { Glass } from "./Glass";
+import { apiFetch } from "@/api";
 import type { DownloadedFile, PlaylistSummary } from "@/types";
 import { useI18n } from "@/i18n";
 
@@ -71,30 +84,70 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
   const { t } = useI18n();
   const [inPlaylists, setInPlaylists] = useState(false);
   const [newName, setNewName] = useState("");
+  const [inDetails, setInDetails] = useState(false);
+  const [details, setDetails] = useState<Record<string, any> | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState(false);
 
-  // Reset the sub-view each time the menu opens on a different track.
+  // Reset the sub-views each time the menu opens on a different track.
   useEffect(() => {
     setInPlaylists(false);
+    setInDetails(false);
     setNewName("");
+    setDetails(null);
+    setDetailsError(false);
   }, [ctx?.file.rel_path]);
+
+  // Fetch the full ID3 metadata for the details panel.
+  useEffect(() => {
+    if (!inDetails || !ctx) return;
+    let cancelled = false;
+    setDetailsLoading(true);
+    setDetailsError(false);
+    apiFetch(`/api/file/details?path=${encodeURIComponent(ctx.file.rel_path)}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setDetails(data);
+      })
+      .catch(() => {
+        if (!cancelled) setDetailsError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inDetails, ctx]);
 
   if (!ctx) return null;
 
   const file = ctx.file;
+  const width = inDetails ? 384 : 224;
+  const reserve = inDetails ? 600 : 340;
 
   return (
     <>
       <div className="fixed inset-0 z-[70]" onMouseDown={close} />
       <div
-        className="fixed z-[80] w-56"
+        className={`fixed z-[80] ${inDetails ? "" : "w-56"}`}
         style={{
-          left: Math.min(ctx.x, window.innerWidth - 236),
-          top: Math.min(ctx.y, window.innerHeight - 340),
+          width: inDetails ? width : undefined,
+          left: Math.min(ctx.x, window.innerWidth - width - 12),
+          top: Math.min(ctx.y, window.innerHeight - reserve),
         }}
       >
         <Glass cornerRadius={12} className="w-full">
           <div className="p-1 text-xs">
-            {!inPlaylists ? (
+            {inDetails ? (
+              <DetailsView
+                file={file}
+                details={details}
+                loading={detailsLoading}
+                error={detailsError}
+                onBack={() => setInDetails(false)}
+              />
+            ) : !inPlaylists ? (
               <>
                 {/* Track header */}
                 <div className="px-2.5 py-1.5 border-b border-white/10 mb-1">
@@ -146,6 +199,11 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
                     }}
                   />
                 )}
+                <Item
+                  icon={<Info className="w-3.5 h-3.5" />}
+                  label={t("More details")}
+                  onClick={() => setInDetails(true)}
+                />
                 {onAddToPlaylist && (
                   <Item
                     icon={<ListPlus className="w-3.5 h-3.5" />}
@@ -246,3 +304,102 @@ const Item: React.FC<{
     <span className="truncate">{label}</span>
   </button>
 );
+
+/** Sub-view « Plus de détails » : métadonnées ID3 complètes du morceau. */
+const DetailsView: React.FC<{
+  file: DownloadedFile;
+  details: Record<string, any> | null;
+  loading: boolean;
+  error: boolean;
+  onBack: () => void;
+}> = ({ file, details, loading, error, onBack }) => {
+  const { t } = useI18n();
+
+  const fmtDuration = (s?: number) => {
+    if (!s) return null;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  const people = (pairs?: string[][]) =>
+    (pairs ?? []).map(([role, name]) => `${role} — ${name}`).join(" · ") || null;
+
+  const lyricsType =
+    details?.lyrics_type === "synced"
+      ? t("Synced")
+      : details?.lyrics_type === "unsynced"
+        ? t("Plain")
+        : details?.lyrics_type === "none"
+          ? t("Missing")
+          : null;
+
+  return (
+    <div className="max-h-[480px] flex flex-col">
+      <div className="px-2.5 py-1.5 border-b border-white/10 mb-1 flex items-center gap-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-apple-subtext hover:bg-white/10 hover:text-white transition-colors"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+          <span className="font-semibold uppercase tracking-wider text-[10px]">
+            {t("Details")}
+          </span>
+        </button>
+      </div>
+
+      <div className="px-3 pb-3 overflow-y-auto scrollbar-none text-[11px]">
+        {loading && (
+          <div className="flex items-center gap-2 py-2 text-apple-subtext">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("Loading…")}
+          </div>
+        )}
+        {error && <p className="py-2 text-rose-400">{t("Action failed")}</p>}
+        {details && (
+          <div className="space-y-px">
+            <Row label={t("Quality")} value={details.quality} />
+            <Row label={t("Duration")} value={fmtDuration(details.duration_seconds)} />
+            <Row
+              label={t("Lyrics")}
+              value={[lyricsType, details.lyrics_source].filter(Boolean).join(" · ")}
+            />
+            <Row label={t("Artist")} value={details.artist} />
+            <Row label={t("Album")} value={details.album} />
+            <Row label={t("Album artist")} value={details.album_artist} />
+            <Row label={t("Year")} value={details.year} />
+            <Row label={t("Genre")} value={details.genre} />
+            <Row label={t("Track")} value={details.track} />
+            <Row label={t("Disc")} value={details.disc} />
+            <Row label={t("Writers")} value={details.writer} />
+            <Row label={t("Producers")} value={people(details.involved_people)} />
+            <Row label={t("Musicians")} value={people(details.musicians)} />
+            <Row label={t("Publisher")} value={details.publisher} />
+            <Row label="ISRC" value={details.isrc} />
+            <Row label={t("Copyright")} value={details.copyright} />
+            <Row label={t("Source")} value={details.source_url} />
+
+            {details.spotify_url && (
+              <a
+                href={details.spotify_url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-2 py-1.5 text-apple-pink hover:text-apple-pinkHover transition-colors"
+              >
+                <span>{t("Open in Spotify")}</span>
+                <ExternalLink className="w-3 h-3 shrink-0" />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Row: React.FC<{ label: string; value?: string | null }> = ({ label, value }) =>
+  value ? (
+    <div className="flex items-start justify-between gap-3 py-1 border-b border-white/5 last:border-0">
+      <span className="text-apple-subtext shrink-0">{label}</span>
+      <span className="text-zinc-200 text-right break-words min-w-0 max-w-[240px]">{value}</span>
+    </div>
+  ) : null;

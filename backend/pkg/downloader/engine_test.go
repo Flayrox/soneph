@@ -3,6 +3,7 @@ package downloader
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,6 +66,18 @@ func TestSpotdlLineParsing(t *testing.T) {
 			},
 			expected: "Putana ",
 		},
+		{
+			name: "metadata upgraded single to album",
+			line: `Updated metadata for Goutte d'eau - Ninho, moved to new location: /downloads/Ninho/Goutte d'eau/Goutte d'eau.mp3.mp3`,
+			re: func(l string) (string, bool) {
+				m := reMetadataUpgraded.FindStringSubmatch(l)
+				if len(m) > 1 {
+					return strings.TrimSpace(m[1]), true
+				}
+				return "", false
+			},
+			expected: "Goutte d'eau - Ninho",
+		},
 	}
 
 	for _, tc := range cases {
@@ -77,6 +90,61 @@ func TestSpotdlLineParsing(t *testing.T) {
 				t.Fatalf("expected %q, got %q", tc.expected, got)
 			}
 		})
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := tc.re(tc.line)
+			if !ok {
+				t.Fatalf("no match for line %q", tc.line)
+			}
+			if got != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, got)
+			}
+		})
+	}
+}
+
+// TestDiffMoves vérifie la détection des fichiers déplacés (single → album) :
+// même identité (URL Spotify), rel_path différent → un FileMove est émis.
+// Une suppression seule ne doit PAS être traitée comme un déplacement.
+func TestDiffMoves(t *testing.T) {
+	before := map[string][]string{
+		"url:https://open.spotify.com/track/aaa": {"Ninho/Vrais/Vrais.mp3.mp3"},
+		"url:https://open.spotify.com/track/bbb": {"Jul/Zone/Zone.mp3.mp3"},
+		"url:https://open.spotify.com/track/ccc": {"Jul/Album/Delete.mp3.mp3"}, // supprimé → ignoré
+	}
+	after := map[string][]string{
+		"url:https://open.spotify.com/track/aaa": {"Ninho/M.I.L.S 2.0/Vrais.mp3.mp3"},
+		"url:https://open.spotify.com/track/bbb": {"Jul/Zone/Zone.mp3.mp3"},
+	}
+
+	moves := diffMoves(before, after)
+	if len(moves) != 1 {
+		t.Fatalf("want 1 move, got %d: %+v", len(moves), moves)
+	}
+	if moves[0].OldRel != "Ninho/Vrais/Vrais.mp3.mp3" {
+		t.Errorf("unexpected old path: %q", moves[0].OldRel)
+	}
+	if moves[0].NewRel != "Ninho/M.I.L.S 2.0/Vrais.mp3.mp3" {
+		t.Errorf("unexpected new path: %q", moves[0].NewRel)
+	}
+
+	// Aucun changement → aucun move.
+	if got := diffMoves(after, after); len(got) != 0 {
+		t.Fatalf("want 0 moves for identical maps, got %+v", got)
+	}
+
+	// Cas multi-copies (même URL sur plusieurs fichiers) → on ne migre pas
+	// au hasard.
+	multi := map[string][]string{
+		"url:https://open.spotify.com/track/aaa": {"A/1.mp3", "B/2.mp3"},
+	}
+	afterOne := map[string][]string{
+		"url:https://open.spotify.com/track/aaa": {"B/2.mp3"},
+	}
+	if got := diffMoves(multi, afterOne); len(got) != 0 {
+		t.Fatalf("want 0 moves for multi-copy, got %+v", got)
 	}
 }
 

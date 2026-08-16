@@ -3,59 +3,45 @@ import { Play, Trash2, ListMusic, Pin, PinOff, Search, Plus, Users, Disc3 } from
 import { cleanTitle } from "@/format";
 import { Glass } from "./Glass";
 import { TrackList } from "./TrackList";
-import type { DownloadedFile, Playlist, PlaylistSummary } from "@/types";
-import type { Pin as PinType } from "@/pins";
+import type { DownloadedFile } from "@/types";
+import type { PluginViewProps } from "@/framework/plugin.types";
 import { useI18n } from "@/i18n";
 
-interface PlaylistViewProps {
-  playlist: Playlist | null;
-  currentPlayingPath: string | null;
-  isPlaying: boolean;
-  onPlayTrack: (relPath: string) => void;
-  onPlayNext?: (paths: string[]) => void;
-  onSelectTrack: (track: DownloadedFile) => void;
-  onRemoveTrack: (path: string) => void;
-  onDeletePlaylist: () => void;
-  onPlayAll: () => void;
-  getApiUrl: () => string;
-  playlists: PlaylistSummary[];
-  onAddToPlaylist: (playlistId: string, path: string) => void;
-  onCreatePlaylist: (name: string, path?: string) => void;
-  onReorder?: (path: string, toIndex: number) => void;
-  likes?: Set<string>;
-  onToggleLike?: (path: string) => void;
-  isPinned?: (pin: PinType) => boolean;
-  onTogglePin?: (pin: PinType) => void;
-  /** The full library — used to search & suggest tracks to add. */
-  libraryFiles?: DownloadedFile[];
-  /** Suggest tracks by these artists (from the library). */
-  suggestArtists?: string[];
-}
-
-export const PlaylistView: React.FC<PlaylistViewProps> = ({
-  playlist,
-  currentPlayingPath,
-  isPlaying,
-  onPlayTrack,
-  onPlayNext,
-  onSelectTrack,
-  onRemoveTrack,
-  onDeletePlaylist,
-  onPlayAll,
-  getApiUrl,
-  playlists,
-  onAddToPlaylist,
-  onCreatePlaylist,
-  onReorder,
-  likes,
-  onToggleLike,
-  isPinned,
-  onTogglePin,
-  libraryFiles = [],
-  suggestArtists = [],
-}) => {
+export const PlaylistView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
   const [addQuery, setAddQuery] = useState("");
+
+  const playlistId = app.nav.startsWith("pl:") ? app.nav.slice(3) : null;
+  const {
+    playlistDetail: playlist,
+    currentPlayingPath,
+    isPlaying,
+    playTrack: onPlayTrack,
+    playNext: onPlayNext,
+    openLyricsDrawer: onSelectTrack,
+    getApiUrl,
+    playlists = app.playlists,
+    addToPlaylist: onAddToPlaylist,
+    createPlaylist: onCreatePlaylist,
+    likes = app.likes,
+    toggleLike: onToggleLike = app.toggleLike,
+    isPinned = app.isPinned,
+    togglePin: onTogglePin = app.togglePin,
+  } = app;
+  const onRemoveTrack = (path: string) => {
+    if (playlistId) app.removeFromPlaylist(playlistId, path);
+  };
+  const onDeletePlaylist = () => {
+    if (playlistId) app.deletePlaylist(playlistId);
+  };
+  const onPlayAll = () => {
+    if (playlist) app.playList(playlist.tracks.map((f) => f.rel_path), 0);
+  };
+  const onReorder = (path: string, toIndex: number) => {
+    if (playlistId) app.reorderPlaylist(playlistId, path, toIndex);
+  };
+  const libraryFiles = app.files;
+  const suggestArtists = (playlist?.tracks ?? []).map((f) => f.artist).filter(Boolean) as string[];
 
   // ── Search & suggestions to add tracks to the playlist ─────────────
   const inPlaylist = useMemo(
