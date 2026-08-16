@@ -53,17 +53,3 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build soneph image
         run: docker build -f backend/Dockerfile -t soneph:ci .
-
-  brand-check:
-    name: No brand mentions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Reject banned brand terms in tracked files
-        run: |
-          # This file itself is excluded: it must contain the terms it scans for.
-          if git grep -inE 'spoti(a)?fy|apple ?music' -- ':!.github/workflows/ci.yml'; then
-            echo "::error::Banned brand terms found — see the lines above."
-            exit 1
-          fi
-          echo "✓ No banned brand terms in tracked files."

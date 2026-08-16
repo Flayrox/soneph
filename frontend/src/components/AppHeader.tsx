@@ -80,14 +80,21 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     typeof window !== "undefined" && window.navigator.userAgent.includes("Electron");
 
   return (
-    <header className="h-14 bg-[#161618]/90 backdrop-blur-2xl border-b border-white/10 px-6 flex items-center justify-between sticky top-0 z-30 select-none">
+    // Toute la zone du haut sert à déplacer la fenêtre (app desktop) ;
+    // les éléments interactifs passent en no-drag. En desktop, le padding
+    // gauche dégage les traffic lights macOS (la recherche ne bute jamais
+    // dessus).
+    <header
+      className={`h-14 bg-[#161618]/90 backdrop-blur-2xl border-b border-white/10 flex items-center justify-between sticky top-0 z-30 select-none ${isDesktop ? "pl-20" : "px-6"} pr-6`}
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+    >
       {/* Page Title */}
-      <div className={`flex items-center gap-3 ${isDesktop ? "pl-14" : ""}`}>
+      <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-white tracking-tight">{getNavTitle()}</h1>
       </div>
 
       {/* Center Download Input & Clean Options Popover */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         {importEnabled && (
           <>
 
@@ -234,7 +241,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       </div>
 
       {/* Active Tasks Pill */}
-      <div>
+      <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         {activeTasksCount > 0 && importEnabled && (
           <button
             onClick={onOpenQueue}

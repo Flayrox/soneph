@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
 
 echo "── 1/4 Frontend (Vite) ──"
-(cd "$ROOT/frontend" && npm run build:go)
+(cd "$ROOT/frontend" && { [ -d node_modules ] || { npm ci 2>/dev/null || npm install; }; } && npm run build:go)
 
 echo "── 2/4 Binaire Go ──"
 (cd "$ROOT/backend" && mkdir -p bin && go build -o bin/soneph-server .)
