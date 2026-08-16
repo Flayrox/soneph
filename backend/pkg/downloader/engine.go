@@ -167,7 +167,21 @@ type Manager struct {
 	persistPath  string
 	onFilesMoved func(moves []FileMove)
 	onTaskDone   func(task *DownloadTask)
+
+	// Cache de la carte d'identité (URL Spotify → chemins) : la lire relit
+	// les tags ID3 de TOUTE la bibliothèque (~1 s pour 136 fichiers, bien
+	// plus avec des milliers). Sans cache, chaque tâche la calculait deux
+	// fois (avant + après), ce qui ralentissait tout sur une grosse
+	// bibliothèque. Le « avant » peut être légèrement périmé (TTL) — il
+	// représente l'état d'avant la tâche ; le « après » est toujours frais.
+	identityMu   sync.Mutex
+	identityMap  map[string][]string
+	identityTime time.Time
 }
+
+// identityCacheTTL borne la fraîcheur du cache « avant ». 30 s : assez court
+// pour ne pas rater un déplacement, assez long pour amortir le scan complet.
+const identityCacheTTL = 30 * time.Second
 
 // queuePath returns where in-flight tasks are persisted so a backend restart
 // can re-queue them (same config dir as the app settings).
@@ -355,11 +369,11 @@ func (m *Manager) Broadcast(event string, data interface{}) {
 	}
 }
 
-// scanIdentity renvoie la carte {identité (URL Spotify) → chemins} de la
-// bibliothèque, via le script Python qui lit les tags WOAS (mutagen).
-// Plusieurs fichiers peuvent partager la même identité (même morceau sur
-// plusieurs albums) : on garde la liste complète.
-func (m *Manager) scanIdentity() map[string][]string {
+// runScanIdentity lance le scan complet (lecture des tags WOAS de tous les
+// MP3) et renvoie la carte {identité → chemins}. Plusieurs fichiers peuvent
+// partager la même identité (même morceau sur plusieurs albums) : on garde
+// la liste complète.
+func (m *Manager) runScanIdentity() map[string][]string {
 	out := map[string][]string{}
 	cmd := exec.Command(GetPythonExec(), GetScriptPath("scan_identity.py"), m.downloadDir)
 	data, err := cmd.Output()
@@ -372,11 +386,45 @@ func (m *Manager) scanIdentity() map[string][]string {
 	return out
 }
 
+// scanIdentity renvoie la carte d'identité, en réutilisant le cache s'il est
+// encore frais (TTL 30 s). Utilisé pour l'état « avant » d'une tâche : un
+// léger décalage est sans conséquence pour la détection des déplacements.
+func (m *Manager) scanIdentity() map[string][]string {
+	m.identityMu.Lock()
+	if m.identityMap != nil && time.Since(m.identityTime) < identityCacheTTL {
+		cached := m.identityMap
+		m.identityMu.Unlock()
+		return cached
+	}
+	m.identityMu.Unlock()
+
+	fresh := m.runScanIdentity()
+
+	m.identityMu.Lock()
+	m.identityMap = fresh
+	m.identityTime = time.Now()
+	m.identityMu.Unlock()
+	return fresh
+}
+
+// scanIdentityFresh force un scan complet, pour l'état « après » d'une tâche
+// (les fichiers viennent de changer sur disque, le cache serait périmé).
+func (m *Manager) scanIdentityFresh() map[string][]string {
+	fresh := m.runScanIdentity()
+
+	m.identityMu.Lock()
+	m.identityMap = fresh
+	m.identityTime = time.Now()
+	m.identityMu.Unlock()
+	return fresh
+}
+
 // ScanIdentityMap expose la carte des identités pour le handler API (ex.
 // retrouver les autres copies d'un morceau quand l'utilisateur en supprime
-// une, pour migrer les stats).
+// une, pour migrer les stats). Appelé rarement (suppression de fichier) : on
+// force un scan frais pour ne pas rater une copie récemment téléchargée.
 func (m *Manager) ScanIdentityMap() map[string][]string {
-	return m.scanIdentity()
+	return m.scanIdentityFresh()
 }
 
 // diffMoves compare la carte avant/après un téléchargement et renvoie les
@@ -696,7 +744,8 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// Détection des fichiers déplacés par le moteur (single → album) et
 	// migration des stats (historique, likes, playlists) vers les nouveaux
 	// chemins, pour ne rien perdre quand un morceau change de dossier.
-	identityAfter := m.scanIdentity()
+	// « Après » toujours frais (les fichiers viennent de bouger).
+	identityAfter := m.scanIdentityFresh()
 	if moves := diffMoves(identityBefore, identityAfter); len(moves) > 0 {
 		m.mu.RLock()
 		onMoved := m.onFilesMoved

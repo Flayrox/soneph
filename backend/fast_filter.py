@@ -20,13 +20,23 @@ def normalize(text):
     return text.strip().lower()
 
 def get_existing_filenames(download_dir):
-    """Collect all normalized filenames currently in downloads directory."""
+    """
+    Collect all normalized filenames currently in downloads directory.
+
+    Un set de noms normalisés permet un lookup O(1) par morceau au lieu du
+    parcours O(N×M) de toute la bibliothèque pour chaque titre de playlist
+    (c'était le goulot d'étranglement sur les grosses playlists).
+    """
     existing = set()
     mp3_files = glob.glob(os.path.join(download_dir, '**', '*.mp3'), recursive=True)
     for f in mp3_files:
-        basename = os.path.splitext(os.path.basename(f))[0]
-        existing.add(normalize(basename))
-        existing.add(basename.lower().strip())
+        base = os.path.basename(f)
+        # spotdl écrit « Title.mp3.mp3 » : on retire jusqu'à 2 extensions pour
+        # que le nom normalisé du fichier = le nom normalisé du titre.
+        for _ in range(2):
+            base = os.path.splitext(base)[0]
+        if base:
+            existing.add(normalize(base))
     return existing
 
 def fetch_page(url, retries=3):
@@ -138,36 +148,32 @@ def fetch_all_tracks(media_url):
                     pass
         return []
 
-    # For playlists/albums: paginate in steps of 100
-    all_tracks = []
-    offset = 0
+    # For playlists/albums: fetch the pages in parallel. The embed API
+    # returns ~100 tracks per page; a short page (or an empty one) marks the
+    # end of the list. Sequential fetching of 20 pages took ~15 s on big
+    # playlists — with 8 threads it's a couple of seconds.
+    import concurrent.futures
     PAGE_SIZE = 100
     MAX_PAGES = 20  # Safety cap at 2000 tracks
+    offsets = list(range(0, PAGE_SIZE * MAX_PAGES, PAGE_SIZE))
 
-    while len(all_tracks) // PAGE_SIZE < MAX_PAGES:
-        url = f'{base}/{media_type}/{media_id}?offset={offset}'
-        sys.stderr.write(f"Fetching embed page offset={offset}...\n")
+    def fetch_one(off):
+        url = f'{base}/{media_type}/{media_id}?offset={off}'
         html = fetch_page(url)
         if not html:
-            sys.stderr.write(f"Failed to fetch page at offset={offset}, stopping.\n")
-            break
+            return off, []
+        return off, parse_tracklist_from_html(html)
 
-        page_tracks = parse_tracklist_from_html(html)
-        if not page_tracks:
-            sys.stderr.write(f"No tracks at offset={offset}, pagination complete.\n")
-            break
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        pages = list(ex.map(fetch_one, offsets))
 
+    all_tracks = []
+    for off, page_tracks in sorted(pages):
+        if not page_tracks or len(page_tracks) < PAGE_SIZE:
+            # Page vide ou dernière page : on s'arrête là.
+            all_tracks.extend(page_tracks)
+            break
         all_tracks.extend(page_tracks)
-        sys.stderr.write(f"Got {len(page_tracks)} tracks at offset={offset}, total so far: {len(all_tracks)}\n")
-
-        if len(page_tracks) < PAGE_SIZE:
-            # Last page reached
-            break
-
-        offset += PAGE_SIZE
-        # Small delay to be polite to the embed API servers
-        time.sleep(0.1)
-
     return all_tracks
 
 
@@ -196,16 +202,11 @@ def main():
         norm_title = normalize(t['title'])
         norm_query = normalize(t['query'])
 
-        is_existing = False
-        for ex in existing:
-            if norm_title and (norm_title in ex or ex in norm_title):
-                is_existing = True
-                break
-            if norm_query and (norm_query in ex or ex in norm_query):
-                is_existing = True
-                break
-
-        if is_existing:
+        # Lookup O(1) dans le set des noms de fichiers normalisés (au lieu de
+        # parcourir toute la bibliothèque pour chaque titre). Le nom de
+        # fichier normalisé = titre normalisé (fichiers « Title.mp3 ») ou
+        # requête normalisée (fichiers « Artist - Title.mp3 »).
+        if (norm_title and norm_title in existing) or (norm_query and norm_query in existing):
             skipped.append(t['query'])
         else:
             missing.append(t['query'])
