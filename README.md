@@ -46,6 +46,25 @@ pipx install spotdl          # or: pip install spotdl
 
 Soneph uses spotdl's own Python interpreter for its helper scripts (ID3 tags, lyrics) — nothing else to install.
 
+### Troubleshooting: `spotdl: executable file not found in $PATH`
+
+This happens when the app is launched from **Finder/Dock**: macOS gives GUI apps a minimal `PATH` (`/usr/bin:/bin:…`), so tools installed with `pipx` (`~/.local/bin`), `pip --user` (`~/Library/Python/3.x/bin`) or Homebrew (`/opt/homebrew/bin`) are invisible to the server.
+
+Soneph now searches these locations automatically (both the Electron launcher and the Go server), so reinstalling is usually enough:
+
+```bash
+pipx install spotdl
+# ou : pip install spotdl
+```
+
+If the error persists, install `spotdl` inside a location on the minimal PATH and relaunch from the Terminal once (`open /Applications/Soneph.app`):
+
+```bash
+ln -s "$(which spotdl)" /usr/local/bin/spotdl
+```
+
+The same fix covers `ffmpeg` (used by spotdl) and `fswatch` (instant auto-import) — `brew install ffmpeg fswatch`.
+
 ---
 
 ## 🚀 Quick start

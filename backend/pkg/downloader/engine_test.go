@@ -105,6 +105,57 @@ func TestSpotdlLineParsing(t *testing.T) {
 	}
 }
 
+// TestEngineCandidateDirs vérifie que la recherche du moteur couvre les
+// emplacements usuels — pipx, Homebrew, pyenv, conda et pip --user macOS
+// (~/Library/Python/<3.x>/bin) — même quand ils sont hors PATH (app lancée
+// depuis le Finder).
+func TestEngineCandidateDirs(t *testing.T) {
+	home := t.TempDir()
+	for _, v := range []string{"3.12", "3.11"} {
+		if err := os.MkdirAll(filepath.Join(home, "Library", "Python", v, "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dirs := engineCandidateDirsFor(home)
+	joined := strings.Join(dirs, "\n")
+	for _, want := range []string{
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".pyenv", "shims"),
+		filepath.Join(home, "miniconda3", "bin"),
+		filepath.Join(home, "anaconda3", "bin"),
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+		filepath.Join(home, "Library", "Python", "3.12", "bin"),
+		filepath.Join(home, "Library", "Python", "3.11", "bin"),
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("candidate %q absent des dossiers cherchés:\n%s", want, joined)
+		}
+	}
+
+	// Aucun doublon (les entrées macOS sont triées par os.ReadDir).
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		if seen[d] {
+			t.Errorf("dossier en double : %s", d)
+		}
+		seen[d] = true
+	}
+}
+
+// TestEngineMissingMessage vérifie que le message d'erreur affiché à
+// l'utilisateur explique comment installer le moteur, au lieu du vague
+// « executable file not found in $PATH ».
+func TestEngineMissingMessage(t *testing.T) {
+	msg := engineMissingMessage()
+	for _, want := range []string{"pipx install spotdl", "pip install spotdl", "spotdl", "Cherché dans"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message d'erreur sans %q : %s", want, msg)
+		}
+	}
+}
+
 // TestDiffMoves vérifie la détection des fichiers déplacés (single → album) :
 // même identité (URL Spotify), rel_path différent → un FileMove est émis.
 // Une suppression seule ne doit PAS être traitée comme un déplacement.

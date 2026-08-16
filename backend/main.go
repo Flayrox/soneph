@@ -68,6 +68,16 @@ func main() {
 	wsHub := handler.NewWSHub()
 
 	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast)
+
+	// Diagnostic précoce : si le moteur de téléchargement n'est pas installé
+	// (ou hors PATH), chaque tâche échouera. On le signale dès le démarrage
+	// pour que l'utilisateur voie le problème dans les logs du serveur.
+	if downloader.EnginePath() == "" {
+		slog.Warn("moteur de téléchargement introuvable — les téléchargements échoueront",
+			"engine", downloader.EngineBin(),
+			"hint", "pipx install spotdl (ou : pip install spotdl) puis relance l'app",
+		)
+	}
 	scanner := storage.NewScanner(downloadDir)
 	importer := syncmgr.New(downloadDir)
 	playlistStore := playlists.New()

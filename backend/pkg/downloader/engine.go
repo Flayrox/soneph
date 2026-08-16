@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"soneph-backend/pkg/config"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +34,104 @@ var engineBin = func() string {
 	}
 	return "spotdl"
 }()
+
+// engineCandidateDirsFor lists the directories where the download engine
+// (and ffmpeg / python helpers) commonly live, but which are missing from
+// PATH when the app is launched from Finder/Dock (macOS) or a restricted
+// environment: pipx, pip --user (macOS Python), Homebrew, pyenv, conda.
+// home is injectable for tests.
+func engineCandidateDirsFor(home string) []string {
+	dirs := []string{
+		filepath.Join(home, ".local", "bin"),     // pipx
+		filepath.Join(home, ".pyenv", "shims"),   // pyenv
+		filepath.Join(home, "miniconda3", "bin"), // conda
+		filepath.Join(home, "anaconda3", "bin"),  // conda
+		"/opt/homebrew/bin",                      // Homebrew (Apple Silicon)
+		"/usr/local/bin",                         // Homebrew (Intel) / python.org
+	}
+	// pip --user sur macOS : ~/Library/Python/<3.x>/bin
+	if home != "" {
+		if entries, err := os.ReadDir(filepath.Join(home, "Library", "Python")); err == nil {
+			for _, e := range entries {
+				if e.IsDir() && strings.HasPrefix(e.Name(), "3.") {
+					dirs = append(dirs, filepath.Join(home, "Library", "Python", e.Name(), "bin"))
+				}
+			}
+		}
+	}
+	return dirs
+}
+
+func engineCandidateDirs() []string {
+	home, _ := os.UserHomeDir()
+	return engineCandidateDirsFor(home)
+}
+
+// engineCandidatePaths returns the absolute candidate paths for a given
+// engine binary name, in search order.
+func engineCandidatePaths(name string) []string {
+	var out []string
+	for _, dir := range engineCandidateDirs() {
+		out = append(out, filepath.Join(dir, name))
+	}
+	return out
+}
+
+var (
+	engineOnce sync.Once
+	enginePath string
+)
+
+// resolveEnginePath finds the download engine executable. It honors, in
+// order: SONEPH_ENGINE (a name or a full path), the process PATH, then the
+// common install directories a GUI-launched process doesn't see. Returns ""
+// when the engine is not installed anywhere.
+func resolveEnginePath() string {
+	name := engineBin
+	if name == "" {
+		return ""
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	for _, p := range engineCandidatePaths(name) {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
+}
+
+// EngineBin returns the configured engine binary name ("spotdl" unless
+// SONEPH_ENGINE overrides it).
+func EngineBin() string {
+	return engineBin
+}
+
+// EnginePath returns the absolute path of the download engine binary, or ""
+// if it is not installed. The result is cached: env vars are read at
+// startup, which is when they're set by the launcher anyway.
+func EnginePath() string {
+	engineOnce.Do(func() {
+		enginePath = resolveEnginePath()
+	})
+	return enginePath
+}
+
+// engineMissingMessage explains how to install the download engine. It
+// surfaces in the task list and toasts, so it's written for the end user
+// (the app UI is French).
+func engineMissingMessage() string {
+	name := engineBin
+	if name == "" {
+		name = "spotdl"
+	}
+	return fmt.Sprintf(
+		"Moteur de téléchargement « %s » introuvable. Installe-le puis relance l'app :\n\n    pipx install %s\n    (ou : pip install %s)\n\nCherché dans : %s",
+		name, name, name,
+		strings.Join(append([]string{"le PATH"}, engineCandidatePaths(name)...), ", "),
+	)
+}
 
 type DownloadTask struct {
 	ID             string     `json:"id"`
@@ -90,7 +188,7 @@ func queuePath() string {
 // syncedlyrics). This keeps local dev (homebrew python) and Docker working
 // identically.
 func GetPythonExec() string {
-	if enginePath, err := exec.LookPath(engineBin); err == nil {
+	if enginePath := EnginePath(); enginePath != "" {
 		if data, err := os.ReadFile(enginePath); err == nil {
 			shebang := strings.TrimPrefix(strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0]), "#!")
 			if fields := strings.Fields(shebang); len(fields) > 0 {
@@ -408,6 +506,15 @@ func (m *Manager) runTask(task *DownloadTask) {
 	m.mu.Unlock()
 	m.notifyUpdate(task)
 
+	// Le moteur n'est pas installé (ou hors PATH — cas classique d'une app
+	// lancée depuis le Finder/Dock sur macOS). On échoue immédiatement avec
+	// un message qui explique comment l'installer, au lieu du vague
+	// « executable file not found in $PATH ».
+	if EnginePath() == "" {
+		m.failTask(task, engineMissingMessage())
+		return
+	}
+
 	// État de la bibliothèque avant le téléchargement : comparé à l'état
 	// d'après, il permet de détecter les fichiers déplacés (single → album)
 	// et de migrer les stats vers leurs nouveaux chemins.
@@ -505,7 +612,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--output", outputTemplate,
 	}
 
-	cmd := exec.Command(engineBin, cmdArgs...)
+	cmd := exec.Command(EnginePath(), cmdArgs...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

@@ -80,6 +80,44 @@ function findServerBinary() {
   return null;
 }
 
+// ── PATH enrichi pour le serveur ────────────────────────────────────────
+// Lancée depuis le Finder/Dock, une app macOS ne reçoit qu'un PATH minimal
+// (/usr/bin:/bin:/usr/sbin:/sbin). Or spotdl (pipx → ~/.local/bin, pip →
+// ~/Library/Python/<3.x>/bin), ffmpeg et fswatch (Homebrew →
+// /opt/homebrew/bin ou /usr/local/bin) vivent ailleurs. On ajoute ces
+// dossiers (sans écraser le PATH existant) pour que le serveur Go et ses
+// sous-processus les retrouvent — c'est la même classe de panne que
+// « spotdl: executable file not found in $PATH ».
+function augmentedPath() {
+  const home = os.homedir();
+  const extra = [
+    path.join(home, ".local", "bin"), // pipx
+    path.join(home, ".pyenv", "shims"),
+    path.join(home, "miniconda3", "bin"),
+    path.join(home, "anaconda3", "bin"),
+    "/opt/homebrew/bin", // Homebrew (Apple Silicon)
+    "/usr/local/bin", // Homebrew (Intel) / python.org
+  ];
+  // pip --user sur macOS : ~/Library/Python/<3.x>/bin
+  try {
+    const libPy = path.join(home, "Library", "Python");
+    for (const v of fs.readdirSync(libPy)) {
+      if (/^3\.\d+$/.test(v)) extra.push(path.join(libPy, v, "bin"));
+    }
+  } catch (_) {
+    /* dossier absent : rien à ajouter */
+  }
+  const seen = new Set();
+  const parts = [];
+  for (const p of [...(process.env.PATH || "").split(path.delimiter), ...extra]) {
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      parts.push(p);
+    }
+  }
+  return parts.join(path.delimiter);
+}
+
 // Un port est « libre » si on ne peut pas s'y connecter. (Tenter de s'y
 // binder est trompeur : sur macOS, se lier à 127.0.0.1 peut réussir même
 // quand un serveur écoute déjà sur *:port en double-stack.)
@@ -134,8 +172,14 @@ async function startServer(port) {
   const downloads = resolveDownloadDir();
   fs.mkdirSync(downloads, { recursive: true });
 
-  // Serveur local uniquement : on retire tout token hérité de l'environnement.
-  const env = { ...process.env, DOWNLOAD_DIR: downloads, PORT: String(port) };
+  // Serveur local uniquement : on retire tout token hérité de l'environnement,
+  // et on donne au serveur un PATH enrichi (pipx, Homebrew, pip --user…).
+  const env = {
+    ...process.env,
+    DOWNLOAD_DIR: downloads,
+    PORT: String(port),
+    PATH: augmentedPath(),
+  };
   delete env.SONEPH_TOKEN;
 
   serverProc = spawn(bin, [], { env, stdio: ["ignore", "pipe", "pipe"] });
