@@ -576,6 +576,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 	ffOutput, ffErr := ffCmd.Output()
 	var ffResult struct {
 		FastFilterApplied bool     `json:"fast_filter_applied"`
+		Reason            string   `json:"reason"`
 		TotalTracks       int      `json:"total_tracks"`
 		AlreadyDownloaded int      `json:"already_downloaded_count"`
 		MissingCount      int      `json:"missing_count"`
@@ -605,6 +606,11 @@ func (m *Manager) runTask(task *DownloadTask) {
 				m.mu.Unlock()
 				m.notifyUpdate(task)
 			}
+		} else if ffResult.Reason != "" {
+			// Filtre désactivé (ex. playlist > 100 titres, API embed plafonnée) :
+			// on l'explique dans les logs au lieu de montrer des chiffres faux.
+			m.appendLog(task, fmt.Sprintf("[%s] ⚠️ %s", time.Now().Format("15:04:05"), ffResult.Reason))
+			m.notifyUpdate(task)
 		}
 	}
 

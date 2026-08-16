@@ -97,17 +97,20 @@ def parse_embed(html):
 def fetch_all_tracks(media_url):
     match = re.search(r"(playlist|album|track)/([a-zA-Z0-9]+)", media_url)
     if not match:
-        return None, []
+        return None, [], False
     base = embed_base_url(media_url)
     if not base:
-        return None, []
+        return None, [], False
     media_type, media_id = match.group(1), match.group(2)
 
     all_tracks = []
     name = ""
     offset = 0
     PAGE_SIZE = 100
-    while True:
+    MAX_PAGES = 30  # garde-fou (playlists énormes) — voir truncated ci-dessous
+    truncated = False
+    prev = None
+    while len(all_tracks) // PAGE_SIZE < MAX_PAGES:
         url = f"{base}/{media_type}/{media_id}?offset={offset}"
         html = fetch_page(url)
         if not html:
@@ -117,12 +120,29 @@ def fetch_all_tracks(media_url):
             name = page_name
         if not page_tracks:
             break
+        if prev is not None and page_tracks == prev:
+            # L'API embed IGNORE offset pour les playlists > 100 titres : la
+            # même page revient en boucle. Sans ça, on tournerait indéfiniment.
+            truncated = True
+            break
         all_tracks.extend(page_tracks)
+        prev = page_tracks
         if len(page_tracks) < PAGE_SIZE:
             break
         offset += PAGE_SIZE
         time.sleep(0.1)
-    return name, all_tracks
+    else:
+        truncated = True
+
+    # Dédoublonnage (pages qui se chevauchent ou se répètent).
+    unique = []
+    seen = set()
+    for t in all_tracks:
+        k = (t.get("title", "").strip().lower(), t.get("artist", "").strip().lower())
+        if k not in seen:
+            seen.add(k)
+            unique.append(t)
+    return name, unique, truncated
 
 
 def main():
@@ -131,7 +151,7 @@ def main():
         return
     download_dir, url = sys.argv[1], sys.argv[2]
 
-    name, tracks = fetch_all_tracks(url)
+    name, tracks, truncated = fetch_all_tracks(url)
     if not tracks:
         print(json.dumps({
             "error": "Impossible de récupérer les morceaux du lien (lien invalide ou API indisponible)",
@@ -160,6 +180,7 @@ def main():
         "matched": matched,
         "missing": missing,
         "total": len(tracks),
+        "truncated": truncated,
     }, ensure_ascii=False))
 
 

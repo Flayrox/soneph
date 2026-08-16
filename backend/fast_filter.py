@@ -152,6 +152,13 @@ def fetch_all_tracks(media_url):
     # returns ~100 tracks per page; a short page (or an empty one) marks the
     # end of the list. Sequential fetching of 20 pages took ~15 s on big
     # playlists — with 8 threads it's a couple of seconds.
+    #
+    # ⚠️ L'API embed IGNORE le paramètre offset pour les playlists : au-delà
+    # de 100 titres, chaque page renvoie exactement les mêmes 100 morceaux.
+    # Si on ne le détecte pas, on compte les mêmes titres en boucle
+    # (ex. « 1280 déjà sur disque » pour une playlist de 1435 titres). On
+    # détecte ce cas et on le signale (truncated=True) pour que l'app ne
+    # montre pas des chiffres faux et laisse spotdl faire le vrai travail.
     import concurrent.futures
     PAGE_SIZE = 100
     MAX_PAGES = 20  # Safety cap at 2000 tracks
@@ -168,13 +175,33 @@ def fetch_all_tracks(media_url):
         pages = list(ex.map(fetch_one, offsets))
 
     all_tracks = []
+    truncated = False
+    prev = None
     for off, page_tracks in sorted(pages):
-        if not page_tracks or len(page_tracks) < PAGE_SIZE:
-            # Page vide ou dernière page : on s'arrête là.
-            all_tracks.extend(page_tracks)
+        if not page_tracks:
+            break
+        if prev is not None and page_tracks == prev:
+            # Même page renvoyée deux fois : offset ignoré, liste plafonnée.
+            truncated = True
             break
         all_tracks.extend(page_tracks)
-    return all_tracks
+        prev = page_tracks
+        if len(page_tracks) < PAGE_SIZE:
+            break
+    else:
+        # On a consommé toutes les pages sans voir de page courte : il y a
+        # probablement plus de titres (ou offset ignoré).
+        truncated = True
+
+    # Dédoublonnage : les pages peuvent se chevaucher (ou se répéter).
+    unique = []
+    seen = set()
+    for t in all_tracks:
+        k = (t.get('title', '').strip().lower(), t.get('artist', '').strip().lower())
+        if k not in seen:
+            seen.add(k)
+            unique.append(t)
+    return unique, truncated
 
 
 def main():
@@ -184,12 +211,23 @@ def main():
     existing = get_existing_filenames(download_dir)
     sys.stderr.write(f"Found {len(existing)} existing normalized filenames on disk.\n")
 
-    tracks = fetch_all_tracks(media_url)
+    tracks, truncated = fetch_all_tracks(media_url)
 
     if not tracks:
         print(json.dumps({
             'fast_filter_applied': False,
             'reason': 'No tracks extracted via embed API'
+        }))
+        return
+
+    # La liste est plafonnée (~100 titres) : les chiffres « déjà sur disque »
+    # seraient faux. On désactive le filtre — spotdl gère le reste (c'est
+    # lui qui sait résoudre la playlist complète et ignorer l'existant).
+    if truncated:
+        print(json.dumps({
+            'fast_filter_applied': False,
+            'reason': 'Spotify embed limité à ~100 titres — filtrage désactivé, spotdl gère le reste',
+            'total_tracks': len(tracks),
         }))
         return
 
