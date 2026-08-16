@@ -202,7 +202,7 @@ cd frontend && npm run typecheck
 
 ## 📜 License
 
-MIT — see [LICENSE](LICENSE). *Not affiliated with Spotify. For personal use of music you have the rights to.*
+MIT — see [LICENSE](LICENSE) for the full terms, including extensive disclaimers of warranty and liability, the no-affiliation notice (this project is independent of Spotify and Apple), and the user's sole responsibility for the legality of content downloaded with the app.
 
 ---
 

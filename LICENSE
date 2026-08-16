@@ -1,3 +1,7 @@
+# Soneph License
+
+## 1. Grant of License (MIT)
+
 MIT License
 
 Copyright (c) 2026 Flayrox
@@ -12,10 +16,336 @@ furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+SOFTWARE.**
+
+The following sections form an integral part of this license and apply with
+full force and effect to the Software, its source code, its documentation,
+its compiled binaries, its installation packages, its website, its
+trademarks and branding, its automated services and any content, metadata,
+files or data produced, downloaded, copied, stored, transmitted or otherwise
+handled by or through the Software (collectively, the "Software" for the
+purposes of this license).
+
+---
+
+## 2. No Affiliation, Sponsorship or Endorsement
+
+2.1. The Software is an **independent, unofficial, third-party project**. It is
+**not affiliated with, endorsed by, sponsored by, approved by, or in any way
+connected to** Spotify AB, Spotify Technology S.A., Apple Inc., Apple Music,
+iTunes, the Apple Music application, Google LLC, YouTube, YouTube Music,
+Deezer, Tidal, Amazon Music, Netease, Musixmatch, Genius, LRC Lib, or any
+other brand, company, service, artist, record label, publisher or rights
+holder whose products, services, names, logos, trademarks, content or APIs
+may be referenced, invoked, integrated with, or used by the Software.
+
+2.2. All trademarks, service marks, trade names, logos, brand names, product
+names, company names, and other identifiers that appear in, on, or through
+the Software, its documentation or its outputs, remain the exclusive property
+of their respective owners. Nothing in this license grants, or may be
+construed as granting, any right, license, or interest in or to any such
+trademark, service mark, trade name, logo, brand name, product name, company
+name or identifier. All such marks are used solely for identification,
+interoperability and descriptive purposes.
+
+2.3. No reference to any third party in the Software, its documentation or
+its outputs shall be interpreted as an endorsement, sponsorship or approval
+of the Software by that third party, nor as an endorsement of that third
+party by the authors of the Software.
+
+---
+
+## 3. Disclaimer of Warranties (Complete and Unconditional)
+
+3.1. **TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS
+PROVIDED ON AN "AS IS", "AS AVAILABLE" AND "WITH ALL FAULTS" BASIS, WITHOUT
+WARRANTIES OF ANY KIND WHATSOEVER, WHETHER EXPRESS, IMPLIED, STATUTORY OR
+OTHERWISE.**
+
+3.2. Without limiting the generality of the foregoing, the authors of the
+Software **expressly disclaim** all warranties, including but not limited to:
+
+   (a) warranties of merchantability, fitness for a particular purpose,
+   satisfactory quality, quiet enjoyment, title and non-infringement;
+
+   (b) warranties that the Software will operate uninterrupted, error-free,
+   secure, or free of viruses, worms, trojans, defects, bugs, vulnerabilities
+   or other harmful components;
+
+   (c) warranties that the Software will be compatible with any particular
+   hardware, operating system, device, browser, network, service or
+   configuration, including but not limited to the Spotify service, the
+   Apple Music application, or any streaming platform;
+
+   (d) warranties that the Software's outputs (including downloaded files,
+   metadata, lyrics, covers, tags or playlists) will be accurate, complete,
+   up to date, lawful, or available at all;
+
+   (e) warranties regarding the legality, availability, quality, fidelity or
+   completeness of any content obtained, downloaded, stored or transmitted
+   by or through the Software;
+
+   (f) warranties arising from course of dealing, course of performance,
+   usage of trade, or any other source.
+
+3.3. The authors of the Software do **not** warrant, represent or guarantee
+that the Software, or any content obtained through it, is lawful to use in
+any particular jurisdiction, country, territory, or under any particular
+circumstance. The user is solely responsible for determining the legality of
+any use of the Software in the user's jurisdiction.
+
+3.4. The Software may depend on third-party services (including but not
+limited to Spotify, Apple Music, LRC Lib, Netease, Musixmatch, Genius, and
+other providers) over which the authors have **no control whatsoever**. The
+authors make no warranty that any such third-party service will remain
+available, accessible, stable, or lawful, and the authors shall have **no
+liability whatsoever** arising from the unavailability, interruption,
+modification, termination, or legal or technical restrictions of any such
+third-party service.
+
+---
+
+## 4. Limitation of Liability (Complete and Unconditional)
+
+4.1. **TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+THE AUTHORS, CONTRIBUTORS, COPYRIGHT HOLDERS, MAINTAINERS, SUCCESSORS OR
+ASSIGNS OF THE SOFTWARE (COLLECTIVELY, THE "AUTHORS") BE LIABLE TO ANY PERSON
+OR ENTITY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+EXEMPLARY, PUNITIVE, OR AGGRAVATED DAMAGES, OR FOR ANY LOSS OF PROFITS,
+REVENUE, GOODWILL, DATA, USE, PRIVACY, OR OTHER INTANGIBLE LOSSES, OR FOR
+ANY CLAIM, DEMAND, ACTION, PROCEEDING, SUIT, LIABILITY OR CAUSE OF ACTION OF
+ANY KIND, WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE AND STRICT
+LIABILITY), STATUTE, WARRANTY, OR OTHERWISE, ARISING OUT OF OR IN CONNECTION
+WITH THE SOFTWARE, ITS USE, ITS INABILITY TO BE USED, ITS OUTPUTS, OR ITS
+INTERACTION WITH ANY THIRD-PARTY SERVICE.**
+
+4.2. Without limiting the generality of the foregoing, the Authors shall
+have **no liability whatsoever** for:
+
+   (a) any claim of copyright, trademark, patent, moral right, or other
+   intellectual property infringement, whether brought by Spotify AB, Apple
+   Inc., any record label, publisher, artist, rights holder, collecting
+   society, or any other person or entity, arising from the user's use of the
+   Software, from content downloaded or stored through the Software, or from
+   the Software's existence, distribution, or interoperability;
+
+   (b) any claim arising from the user's failure to comply with applicable
+   laws, regulations, terms of service, or licensing agreements, including
+   but not limited to the terms of service of any streaming platform or the
+   laws of the user's jurisdiction concerning copyright, private copying,
+   fair use, or digital rights management;
+
+   (c) any claim arising from content that the user downloads, copies,
+   stores, shares, publishes, streams, or otherwise uses through the
+   Software, including claims by third parties that such content infringes
+   their rights;
+
+   (d) any claim arising from a defect, vulnerability, or security breach of
+   the Software, or from loss, corruption, or disclosure of the user's data,
+   files, credentials, or personal information;
+
+   (e) any claim arising from the Software's use of, or dependence on,
+   third-party services, APIs, libraries, or content, including any
+   interruption, degradation, or termination of such services;
+
+   (f) any claim for damages caused by the user's own actions or omissions,
+   by the actions or omissions of third parties, by force majeure, by acts
+   of government, by network failures, by hardware failures, or by any cause
+   beyond the Authors' reasonable control.
+
+4.3. **THE FOREGOING LIMITATIONS APPLY EVEN IF THE AUTHORS HAVE BEEN ADVISED
+OF THE POSSIBILITY OF SUCH DAMAGES AND EVEN IF A REMEDY FAILS OF ITS
+ESSENTIAL PURPOSE.**
+
+4.4. To the extent that any liability cannot be excluded or limited under
+mandatory applicable law, the Authors' aggregate liability shall be limited
+to the maximum extent permitted by such law, and in no event shall such
+aggregate liability exceed the amount, if any, actually paid by the user for
+the Software (which amount is zero unless the user has made a donation or
+otherwise voluntarily transferred funds to the Authors).
+
+---
+
+## 5. User Responsibilities and Legal Compliance
+
+5.1. The user is **solely and exclusively responsible** for:
+
+   (a) ensuring that their use of the Software complies with all applicable
+   laws, regulations, directives, rules and ordinances in their jurisdiction,
+   including but not limited to copyright law, neighboring rights law,
+   trademark law, privacy law, data protection law, and export control law;
+
+   (b) obtaining all necessary rights, licenses, consents and permissions
+   for any content they download, copy, store, share or otherwise use with
+   the Software, and for ensuring that such use is lawful (including, without
+   limitation, that the user has the right to make private copies, that such
+   copies are for personal, non-commercial use only, and that the user
+   complies with the terms of service of any service involved);
+
+   (c) complying with the terms of service, community guidelines, and all
+   other contractual conditions of any third-party service used in
+   connection with the Software;
+
+   (d) securing their own systems, data, credentials and accounts, and for
+   all consequences of any security incident affecting their use of the
+   Software;
+
+   (e) supervising any use of the Software by minors or other persons for
+   whom the user is responsible.
+
+5.2. **The Authors do not condone, encourage, or facilitate piracy, copyright
+infringement, or any unlawful activity.** The Software is intended for use
+with content the user has the lawful right to use. If the user uses the
+Software in a manner that violates any law or the rights of any third party,
+the user alone shall bear all legal, financial, and other consequences
+thereof, and the user shall indemnify and hold harmless the Authors as
+provided in Section 7.
+
+5.3. The user acknowledges that the availability, legality, and technical
+feasibility of the Software's features may vary by jurisdiction and over
+time, and that the Authors are under no obligation to maintain, update, or
+continue to provide the Software or any of its features.
+
+---
+
+## 6. Third-Party Content and Services
+
+6.1. The Software may retrieve, process, display, download, or store content
+originating from third parties, including but not limited to musical works,
+recordings, lyrics, metadata, album artwork, and playlist information. The
+Authors do **not** author, control, verify, endorse, or warrant any such
+third-party content, and the Authors shall have **no liability whatsoever**
+for the accuracy, legality, availability, or quality of such content, or for
+any claim arising from such content.
+
+6.2. The Software may depend on the continued availability of third-party
+services, APIs, and data sources. The Authors have no control over, and
+accept no responsibility for, the availability, stability, accuracy, legality,
+or continued existence of such services, APIs, and data sources, or for any
+changes to them, including changes that render the Software non-functional
+or unlawful.
+
+6.3. Any lyrics, metadata, or other content provided through the Software is
+provided "as is" by its respective sources, and all rights in such content
+remain with their respective owners. The user shall not redistribute such
+content except as permitted by law and by the respective owners' terms.
+
+---
+
+## 7. Indemnification
+
+7.1. **The user agrees to indemnify, defend, and hold harmless the Authors,
+their affiliates, officers, directors, employees, agents, successors, and
+assigns from and against any and all claims, demands, actions, proceedings,
+suits, damages, losses, liabilities, costs, and expenses (including
+reasonable attorneys' fees and litigation costs), arising out of or in
+connection with:**
+
+   (a) the user's use of the Software, including any content downloaded,
+   stored, shared, or otherwise used through the Software;
+
+   (b) the user's breach of any term of this license, including without
+   limitation the user responsibilities set forth in Section 5;
+
+   (c) the user's violation of any law, regulation, or right of any third
+   party;
+
+   (d) any claim that the user's use of the Software infringes the
+   intellectual property rights, privacy rights, or other rights of any
+   third party, including rights holders, record labels, publishers,
+   artists, or streaming platforms.
+
+---
+
+## 8. Export, Import and Sanctions Compliance
+
+8.1. The user shall not use, export, re-export, import, or transfer the
+Software, directly or indirectly, in violation of any applicable export,
+import, or sanctions laws, regulations, or restrictions, including those of
+the European Union, the United States, or the user's own jurisdiction. The
+user is solely responsible for complying with all such laws and regulations.
+
+---
+
+## 9. Data, Privacy and Security
+
+9.1. The user acknowledges that the Software may process, store, or transmit
+data, files, metadata, and personal information on the user's own systems.
+The Authors shall have **no liability whatsoever** for any loss, corruption,
+disclosure, unauthorized access to, or misuse of such data, files, metadata,
+or personal information, whether caused by the Software, by third-party
+services, by the user, or by any other cause.
+
+9.2. The user is responsible for protecting their own credentials, tokens,
+passwords, and personal data, and for reviewing the privacy policies of any
+third-party service used in connection with the Software.
+
+---
+
+## 10. General Provisions
+
+10.1. **Severability.** If any provision of this license is held to be
+invalid, illegal, or unenforceable under applicable law, such provision
+shall be deemed modified to the minimum extent necessary to make it valid,
+legal, and enforceable, and the validity, legality, and enforceability of
+the remaining provisions shall not in any way be affected or impaired
+thereby. If a provision cannot be so modified, it shall be severed from this
+license, and the remainder shall continue in full force and effect.
+
+10.2. **Waiver.** No failure or delay by the Authors in exercising any right
+or remedy under this license shall operate as a waiver thereof, nor shall
+any single or partial exercise of any right or remedy preclude any other or
+further exercise thereof or the exercise of any other right or remedy.
+
+10.3. **Entire Agreement.** This license constitutes the entire agreement
+between the user and the Authors with respect to the Software and supersedes
+all prior and contemporaneous understandings, agreements, representations,
+and warranties, both written and oral, with respect to the Software.
+
+10.4. **Survival.** The provisions of Sections 2 through 9, and of this
+Section 10, shall survive any termination or expiration of this license and
+shall remain in full force and effect.
+
+10.5. **Assignment.** The user may not assign or transfer this license or any
+of its rights or obligations hereunder, in whole or in part, without the
+prior written consent of the Authors. Any purported assignment in violation
+of this section shall be void. The Authors may assign this license and their
+rights and obligations hereunder without restriction.
+
+10.6. **Governing Law and Jurisdiction.** This license shall be governed by
+and construed in accordance with the laws of the jurisdiction in which the
+Authors are domiciled, without regard to its conflict of law principles. Any
+dispute arising out of or in connection with this license shall be subject
+to the exclusive jurisdiction of the competent courts of that jurisdiction,
+except where mandatory law provides otherwise. If the user is a consumer
+located in a jurisdiction where such a choice of law or jurisdiction is not
+permitted, the applicable mandatory provisions of the user's jurisdiction
+shall prevail to the extent required by law.
+
+10.7. **No Third-Party Beneficiaries.** Except as expressly provided herein,
+this license is for the sole benefit of the parties hereto and their
+permitted successors and assigns, and nothing herein, express or implied, is
+intended to or shall confer upon any other person or entity any legal or
+equitable right, benefit, or remedy of any nature whatsoever under or by
+reason of this license.
+
+10.8. **No Partnership or Agency.** Nothing in this license shall be deemed
+to create a partnership, joint venture, agency, employment, or fiduciary
+relationship between the user and the Authors, or between the Authors and
+any third party.
+
+10.9. **Notices.** Where this license requires notice to the Authors, such
+notice shall be given in writing to the repository owner of the Software's
+primary public repository.
+
+---
+
+*This license is provided for general informational purposes and does not
+constitute legal advice. Consult a qualified legal professional in your
+jurisdiction for advice specific to your situation.*
