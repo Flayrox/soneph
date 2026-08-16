@@ -1,12 +1,23 @@
 import React from "react";
-import LiquidGlass from "liquid-glass-react";
-import { Play, Heart, Music, Clock, TrendingUp, Sparkles } from "lucide-react";
-import type { DownloadedFile } from "@/types";
+import { Play, Heart, Music, Clock, TrendingUp, Sparkles, ListMusic } from "lucide-react";
+import { Glass } from "./Glass";
+import { TrackContextMenu, useTrackCtxMenu } from "./TrackContextMenu";
+import { cleanTitle } from "@/format";
+import type { DownloadedFile, PlaylistSummary } from "@/types";
 import { useI18n } from "@/i18n";
 
 export interface TopEntry {
   file: DownloadedFile;
   plays: number;
+}
+
+export interface PinnedEntry {
+  kind: "artist" | "album" | "playlist";
+  name: string;
+  files: DownloadedFile[];
+  /** Playlist id (only for pinned playlists). */
+  id?: string;
+  trackCount?: number;
 }
 
 interface HomeViewProps {
@@ -22,6 +33,15 @@ interface HomeViewProps {
   onToggleLike: (path: string) => void;
   onNavChange: (nav: string) => void;
   getApiUrl: () => string;
+  /** Pinned artists & albums, rendered as quick-access cards. */
+  pinned: PinnedEntry[];
+  /** Shared context-menu callbacks (right-click on any home card). */
+  onPlayNext?: (paths: string[]) => void;
+  onSelectTrack?: (track: DownloadedFile) => void;
+  onDelete?: (path: string) => void;
+  playlists?: PlaylistSummary[];
+  onAddToPlaylist?: (playlistId: string, path: string) => void;
+  onCreatePlaylist?: (name: string) => void;
 }
 
 const Cover: React.FC<{ file: DownloadedFile; getApiUrl: () => string }> = ({ file, getApiUrl }) => (
@@ -71,12 +91,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onToggleLike,
   onNavChange,
   getApiUrl,
+  pinned,
+  onPlayNext,
+  onSelectTrack,
+  onDelete,
+  playlists = [],
+  onAddToPlaylist,
+  onCreatePlaylist,
 }) => {
   const { t } = useI18n();
+  // Shared right-click context menu — same menu as everywhere else.
+  const trackCtx = useTrackCtxMenu();
 
   const playPathIn = (list: DownloadedFile[], path: string) => {
     const idx = list.findIndex((f) => f.rel_path === path);
     if (idx >= 0) onPlayList(list.map((f) => f.rel_path), idx);
+  };
+
+  const openCtx = (e: React.MouseEvent, file: DownloadedFile) => {
+    e.preventDefault();
+    trackCtx.setCtx({ x: e.clientX, y: e.clientY, file });
   };
 
   const stats = [
@@ -100,18 +134,68 @@ export const HomeView: React.FC<HomeViewProps> = ({
         {/* Stats */}
         <div className="flex flex-wrap gap-3 mt-4">
           {stats.map((s) => (
-            <LiquidGlass key={s.label} cornerRadius={14} padding="0px" blurAmount={0.02} displacementScale={20}>
-              <div className="flex items-center gap-2.5 bg-white/5 rounded-xl px-4 py-2.5">
+            <Glass key={s.label} cornerRadius={14} className="w-fit">
+              <div className="flex items-center gap-2.5 rounded-xl px-4 py-2.5">
                 <s.icon className="w-4 h-4 text-apple-pink" />
                 <div>
                   <div className="text-base font-bold text-white leading-none">{s.value}</div>
                   <div className="text-[10px] text-apple-subtext mt-0.5">{s.label}</div>
                 </div>
               </div>
-            </LiquidGlass>
+            </Glass>
           ))}
         </div>
       </div>
+
+      {/* Pinned artists & albums */}
+      {pinned.length > 0 && (
+        <section>
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-3">
+            {t("Pinned")}
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {pinned.map((p) => {
+              const nav =
+                p.kind === "playlist"
+                  ? `pl:${p.id}`
+                  : `${p.kind}:${encodeURIComponent(p.name)}`;
+              const count = p.trackCount ?? p.files.length;
+              const kindLabel =
+                p.kind === "artist" ? t("Artist") : p.kind === "album" ? t("Album") : t("Playlist");
+              return (
+                <div
+                  key={`${p.kind}:${p.kind === "playlist" ? p.id : p.name}`}
+                  onClick={() => onNavChange(nav)}
+                  className="group bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-3 cursor-pointer transition-all"
+                >
+                  <div className="w-full aspect-square rounded-lg overflow-hidden bg-[#28282c] flex items-center justify-center text-apple-pink relative mb-2">
+                    {p.files.length > 0 ? (
+                      <>
+                        <Music className="w-8 h-8 opacity-50" />
+                        <img
+                          src={`${getApiUrl()}/cover?path=${encodeURIComponent(p.files[0].rel_path)}`}
+                          alt={p.name}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <ListMusic className="w-10 h-10" />
+                    )}
+                  </div>
+                  <p className="text-xs font-semibold text-white truncate">{p.name}</p>
+                  <p className="text-[11px] text-apple-subtext uppercase tracking-wider">
+                    {kindLabel} · {count} {t("songs")}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Recent listens */}
       <section>
@@ -121,10 +205,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </h3>
         </div>
         {recent.length === 0 ? (
-          <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-8 text-center">
-            <Clock className="w-8 h-8 mx-auto mb-2 opacity-40 text-apple-subtext" />
-            <p className="text-sm text-zinc-400">{t("Play something to start building your history")}</p>
-          </div>
+          <Glass cornerRadius={14}>
+            <div className="px-5 py-8 text-center">
+              <Clock className="w-8 h-8 mx-auto mb-2 opacity-40 text-apple-subtext" />
+              <p className="text-sm text-zinc-400">{t("Play something to start building your history")}</p>
+            </div>
+          </Glass>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
             {recent.slice(0, 12).map((f) => {
@@ -133,6 +219,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <div
                   key={f.rel_path}
                   onClick={() => playPathIn(recent, f.rel_path)}
+                  onContextMenu={(e) => openCtx(e, f)}
                   className="group bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-3 cursor-pointer transition-all"
                 >
                   <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-[#28282c] flex items-center justify-center text-apple-pink mb-2">
@@ -156,7 +243,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       </div>
                     )}
                   </div>
-                  <p className="text-xs font-semibold text-white truncate">{f.title}</p>
+                  <p className="text-xs font-semibold text-white truncate">{cleanTitle(f.title)}</p>
                   <p className="text-[11px] text-apple-subtext truncate">{f.artist}</p>
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[10px] text-zinc-500">{t("Recently played")}</span>
@@ -183,12 +270,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <div
                 key={entry.file.rel_path}
                 onClick={() => playPathIn(top.map((e) => e.file), entry.file.rel_path)}
+                onContextMenu={(e) => openCtx(e, entry.file)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
               >
                 <span className="w-6 text-center text-sm font-bold text-apple-subtext">{i + 1}</span>
                 <Cover file={entry.file} getApiUrl={getApiUrl} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-white truncate">{entry.file.title}</p>
+                  <p className="text-xs font-semibold text-white truncate">{cleanTitle(entry.file.title)}</p>
                   <p className="text-[11px] text-apple-subtext truncate">{entry.file.artist}</p>
                 </div>
                 <span className="text-[10px] text-zinc-500 shrink-0">
@@ -218,21 +306,24 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
         </div>
         {liked.length === 0 ? (
-          <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-8 text-center">
-            <Heart className="w-8 h-8 mx-auto mb-2 opacity-40 text-apple-subtext" />
-            <p className="text-sm text-zinc-400">{t("No likes yet — tap the heart on a track")}</p>
-          </div>
+          <Glass cornerRadius={14}>
+            <div className="px-5 py-8 text-center">
+              <Heart className="w-8 h-8 mx-auto mb-2 opacity-40 text-apple-subtext" />
+              <p className="text-sm text-zinc-400">{t("No likes yet — tap the heart on a track")}</p>
+            </div>
+          </Glass>
         ) : (
           <div className="space-y-1">
             {liked.slice(0, 8).map((f) => (
               <div
                 key={f.rel_path}
                 onClick={() => playPathIn(liked, f.rel_path)}
+                onContextMenu={(e) => openCtx(e, f)}
                 className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
               >
                 <Cover file={f} getApiUrl={getApiUrl} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-white truncate">{f.title}</p>
+                  <p className="text-xs font-semibold text-white truncate">{cleanTitle(f.title)}</p>
                   <p className="text-[11px] text-apple-subtext truncate">{f.artist}</p>
                 </div>
                 <LikeButton liked onClick={() => onToggleLike(f.rel_path)} />
@@ -241,6 +332,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         )}
       </section>
+
+      {/* Shared right-click context menu — works on Home cards too */}
+      <TrackContextMenu
+        ctx={trackCtx.ctx}
+        close={trackCtx.close}
+        onPlay={(path) => playPathIn(recent.concat(top.map((e) => e.file), liked), path)}
+        onPlayNext={onPlayNext}
+        likes={likes}
+        onToggleLike={onToggleLike}
+        onSelectTrack={onSelectTrack}
+        playlists={playlists}
+        onAddToPlaylist={onAddToPlaylist}
+        onCreatePlaylist={onCreatePlaylist}
+        onDelete={onDelete ?? (() => {})}
+      />
     </div>
   );
 };

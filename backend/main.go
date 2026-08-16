@@ -101,6 +101,7 @@ func main() {
 		apiGroup.GET("/playlists/:id", api.GetPlaylist)
 		apiGroup.POST("/playlists/:id/tracks", api.AddPlaylistTrack)
 		apiGroup.DELETE("/playlists/:id/tracks", api.RemovePlaylistTrack)
+		apiGroup.POST("/playlists/:id/order", api.ReorderPlaylist)
 		apiGroup.POST("/scrobble", api.Scrobble)
 		apiGroup.GET("/history/recent", api.GetRecentHistory)
 		apiGroup.GET("/history/top", api.GetTopTracks)

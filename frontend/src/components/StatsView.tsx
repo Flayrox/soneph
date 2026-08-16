@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Clock, Play, TrendingUp, User, Music, BarChart3, Heart } from "lucide-react";
-import type { DownloadedFile } from "@/types";
 import { apiFetch } from "@/api";
+import { Glass } from "./Glass";
+import type { PluginViewProps } from "@/framework/plugin.types";
 import { useI18n } from "@/i18n";
 
 interface StatsData {
@@ -12,14 +13,6 @@ interface StatsData {
   plays_by_day: { day: string; plays: number }[];
 }
 
-interface StatsViewProps {
-  files: DownloadedFile[];
-  likes: Set<string>;
-  onToggleLike: (path: string) => void;
-  onPlayTrack: (path: string) => void;
-  getApiUrl: () => string;
-}
-
 const formatDuration = (seconds: number) => {
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
@@ -27,8 +20,9 @@ const formatDuration = (seconds: number) => {
   return `${m} min`;
 };
 
-export const StatsView: React.FC<StatsViewProps> = ({ files, likes, onToggleLike, onPlayTrack, getApiUrl }) => {
+export const StatsView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
+  const { files, likes, toggleLike, playTrack, getApiUrl } = app;
   const [stats, setStats] = useState<StatsData | null>(null);
 
   useEffect(() => {
@@ -70,9 +64,9 @@ export const StatsView: React.FC<StatsViewProps> = ({ files, likes, onToggleLike
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {cards.map((c) => (
+          <Glass key={c.label} cornerRadius={14}>
           <div
-            key={c.label}
-            className="bg-white/5 border border-white/10 rounded-2xl px-4 py-4 flex items-center gap-3"
+            className="rounded-2xl px-4 py-4 flex items-center gap-3"
           >
             <div className="w-10 h-10 rounded-xl bg-apple-pink/15 border border-apple-pink/30 flex items-center justify-center text-apple-pink shrink-0">
               <c.icon className="w-4.5 h-4.5" />
@@ -82,6 +76,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ files, likes, onToggleLike
               <div className="text-[11px] text-apple-subtext">{c.label}</div>
             </div>
           </div>
+          </Glass>
         ))}
       </div>
 
@@ -148,7 +143,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ files, likes, onToggleLike
               return (
                 <div
                   key={tt.path}
-                  onClick={() => file && onPlayTrack(tt.path)}
+                  onClick={() => file && playTrack(tt.path)}
                   className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
                 >
                   <span className="w-6 text-center text-sm font-bold text-apple-subtext">{i + 1}</span>
@@ -177,7 +172,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ files, likes, onToggleLike
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        onToggleLike(tt.path);
+                        toggleLike(tt.path);
                       }}
                       className="p-1.5 rounded-full transition-all"
                       title={likes.has(tt.path) ? "Unlike" : "Like"}

@@ -460,6 +460,27 @@ func (a *API) RemovePlaylistTrack(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"playlist": p})
 }
 
+// ReorderPlaylist sets the playlist's track order (drag-and-drop reorder).
+func (a *API) ReorderPlaylist(c *gin.Context) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Paths) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'paths' is required."})
+		return
+	}
+	p, err := a.playlists.Reorder(c.Param("id"), req.Paths)
+	if err != nil {
+		if err == playlists.ErrNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"playlist": p})
+}
+
 // Scrobble records a play event so the Home view can show recent listens.
 func (a *API) Scrobble(c *gin.Context) {
 	var req struct {

@@ -235,9 +235,63 @@ const dict: Record<Lang, Record<string, string>> = {
     "Track added to likes": "Morceau ajouté aux favoris",
     "Track removed from likes": "Morceau retiré des favoris",
 
+    // ── Sélection de morceaux (desktop) ──
+    selected: "sélectionnés",
+    Close: "Fermer",
+    "Play Next": "Lire ensuite",
+    "Added to queue": "Ajouté à la file",
+    track: "morceau",
+    tracks: "morceaux",
+    "will play next": "sera joué ensuite",
+    will: "seront joués ensuite",
+
+    // ── Lecteur : file d'attente, shuffle, repeat ──
+    Shuffle: "Aléatoire",
+    "Repeat Off": "Répétition désactivée",
+    "Repeat All": "Répéter tout",
+    "Repeat One": "Répéter un morceau",
+    Queue: "File d'attente",
+    "Now Playing": "En cours de lecture",
+    "Up Next": "À suivre",
+    "Up next": "À suivre",
+    "End of queue": "Fin de la file",
+    "End of queue — will loop": "Fin de la file — boucle active",
+
+    // ── Recherche dans les playlists ──
+    "Search tracks to add…": "Chercher des morceaux à ajouter…",
+    "No results": "Aucun résultat",
+    "More from": "Plus de",
+    "More from album": "Plus de l'album",
+    "Search your library to add tracks to this playlist":
+      "Cherche dans ta bibliothèque pour ajouter des morceaux à cette playlist",
+    "View Artist": "Voir l'artiste",
+    "View Album": "Voir l'album",
+    "Remove from queue": "Retirer de la file",
+    "Drag to resize — double-click to reset": "Tire pour redimensionner — double-clic pour réinitialiser",
+    "Move sidebar to the right": "Déplacer la sidebar à droite",
+    "Move sidebar to the left": "Déplacer la sidebar à gauche",
+
+    // ── Artistes, albums & pins ──
+    Artist: "Artiste",
+    Pinned: "Épinglés",
+    Pin: "Épingler",
+    Unpin: "Désépingler",
+    Unknown: "Inconnu",
+    "No artists yet": "Aucun artiste pour l'instant",
+    "No albums yet": "Aucun album pour l'instant",
+    "Import music to build your library": "Importe de la musique pour construire ta bibliothèque",
+    "No songs by this artist": "Aucun morceau de cet artiste",
+    "No songs on this album": "Aucun morceau sur cet album",
+
     // ── Modules & Marketplace ──
     Marketplace: "Marketplace",
     Modules: "Modules",
+    Plugins: "Plugins",
+    "Choose your plugins": "Choisis tes plugins",
+    "Enable the plugins you want. You can change this anytime in the Marketplace.":
+      "Active les plugins que tu veux. Tu pourras les changer à tout moment dans la Marketplace.",
+    "All plugins are optional — the player, library and lyrics stay always on.":
+      "Tous les plugins sont optionnels — le lecteur, la bibliothèque et les paroles restent toujours actifs.",
     "Choose your modules": "Choisis tes modules",
     "Welcome to soneph": "Bienvenue sur soneph",
     "Enable the features you want. You can change this anytime in the Marketplace.":

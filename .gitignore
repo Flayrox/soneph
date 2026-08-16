@@ -130,3 +130,6 @@ backend/soneph-server.exe
 
 # Tooling internal state
 .freebuff/
+
+# Local reference material — cloned repos & analysis docs for inspiration
+.reference/

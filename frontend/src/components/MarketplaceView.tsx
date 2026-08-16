@@ -1,20 +1,22 @@
 import React from "react";
 import { Puzzle, Check } from "lucide-react";
-import { MODULES, useModules } from "@/modules";
+import { toggleablePlugins } from "@/framework/pluginRegistry";
+import { usePlugins } from "@/framework/PluginProvider";
 import { useI18n } from "@/i18n";
 
 export const MarketplaceView: React.FC = () => {
   const { t } = useI18n();
-  const { enabled, toggle } = useModules();
+  const { enabled, toggle } = usePlugins();
+  const MODULES = toggleablePlugins();
 
   return (
     <div className="w-full text-zinc-200 select-none font-sans p-6 space-y-6 max-w-2xl">
       <div className="flex items-center gap-2 text-apple-pink">
         <Puzzle className="w-4 h-4" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider">{t("Modules")}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider">{t("Plugins")}</span>
       </div>
       <p className="text-sm text-zinc-400 -mt-3">
-        {t("Enable the features you want. You can change this anytime in the Marketplace.")}
+        {t("Enable the plugins you want. You can change this anytime in the Marketplace.")}
       </p>
 
       <div className="space-y-3">

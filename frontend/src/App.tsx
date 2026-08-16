@@ -7,15 +7,17 @@ import { LyricsModal } from "@/components/LyricsModal";
 import { ToastContainer, ToastMessage } from "@/components/Toast";
 import { LyricsDrawer } from "@/components/LyricsDrawer";
 import { LyricsManagerView } from "@/components/LyricsManagerView";
-import { SyncSettingsView } from "@/components/SyncSettingsView";
-import { DownloadsView } from "@/components/DownloadsView";
 import { PlaylistView } from "@/components/PlaylistView";
+import { CollectionGrid } from "@/components/CollectionGrid";
+import { CollectionDetail } from "@/components/CollectionDetail";
 import { HomeView } from "@/components/HomeView";
-import { StatsView } from "@/components/StatsView";
+import { usePins } from "@/pins";
 import { MarketplaceView } from "@/components/MarketplaceView";
 import { OnboardingView } from "@/components/OnboardingView";
+import { PluginHostView } from "@/framework/PluginHostView";
+import { usePlugins } from "@/framework/PluginProvider";
+import type { PluginApp } from "@/framework/plugin.types";
 import { useI18n } from "@/i18n";
-import { useModules } from "@/modules";
 import { apiFetch, wsUrl } from "@/api";
 import type {
   DownloadedFile,
@@ -36,9 +38,10 @@ const jsonHeaders = { "Content-Type": "application/json" };
 
 export default function App() {
   const { t } = useI18n();
-  const { isEnabled, configured, finishOnboarding } = useModules();
+  const { isEnabled, configured, finishOnboarding } = usePlugins();
   const importEnabled = isEnabled("import");
   const statsEnabled = isEnabled("stats");
+  const { pins, togglePin, isPinned } = usePins();
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [files, setFiles] = useState<DownloadedFile[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
@@ -48,6 +51,10 @@ export default function App() {
   const [topTracks, setTopTracks] = useState<TopTrack[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>("");
   const [activeNav, setActiveNav] = useState<string>("songs");
+  const [sidebarRight, setSidebarRight] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("soneph_sidebar_pos") === "right";
+  });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -63,6 +70,22 @@ export default function App() {
   // Playback queue: the ordered list of rel_paths currently being played.
   const queueRef = useRef<string[]>([]);
   const queueIndexRef = useRef<number>(-1);
+  // Shuffle order (indices into queueRef) — regenerated on toggle / queue change.
+  const shuffleOrderRef = useRef<number[]>([]);
+  const [shuffle, setShuffle] = useState<boolean>(false);
+  const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off");
+  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
+  // Bumped on every queue mutation so the Player re-renders with the new queue.
+  const [queueTick, setQueueTick] = useState<number>(0);
+  const QUEUE_STORAGE_KEY = "soneph_queue_v1";
+
+  // Display queue: resolve paths to files (recomputed each render).
+  const queueTracks = useMemo(() => {
+    void queueTick;
+    return queueRef.current
+      .map((p) => files.find((f) => f.rel_path === p))
+      .filter((f): f is DownloadedFile => !!f);
+  }, [files, queueTick]);
 
   // Synchronized Karaoke Lyrics State
   const [isLyricsOpen, setIsLyricsOpen] = useState<boolean>(false);
@@ -184,6 +207,59 @@ export default function App() {
       setPlaylistDetail(null);
     }
   }, []);
+
+  // True once the initial restore has run — until then, never persist an
+  // (empty) queue, or it would clobber the saved one on first mount.
+  const restoredQueueRef = useRef(false);
+
+  // Restore the saved queue once the library has loaded.
+  useEffect(() => {
+    if (restoredQueueRef.current || files.length === 0) return;
+    restoredQueueRef.current = true;
+    try {
+      const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.queue) && parsed.queue.length > 0) {
+          // Drop paths that no longer exist in the library.
+          const validPaths = new Set(files.map((f) => f.rel_path));
+          const queue = parsed.queue.filter(
+            (p: unknown) => typeof p === "string" && validPaths.has(p)
+          );
+          if (queue.length > 0) {
+            queueRef.current = queue;
+            const idx =
+              typeof parsed.index === "number" &&
+              parsed.index >= 0 &&
+              parsed.index < queue.length
+                ? parsed.index
+                : 0;
+            queueIndexRef.current = idx;
+          }
+        }
+      }
+    } catch {
+      // Corrupted storage — ignore.
+    }
+    // Always bump so the (possibly restored) queue gets persisted correctly.
+    setQueueTick((v) => v + 1);
+  }, [files]);
+
+  // Persist the playback queue to localStorage on every mutation.
+  useEffect(() => {
+    if (!restoredQueueRef.current) return;
+    try {
+      window.localStorage.setItem(
+        QUEUE_STORAGE_KEY,
+        JSON.stringify({
+          queue: queueRef.current,
+          index: queueIndexRef.current,
+        })
+      );
+    } catch {
+      // storage unavailable — queue stays in-memory
+    }
+  }, [queueTick]);
 
   // Connect WebSockets
   useEffect(() => {
@@ -357,6 +433,28 @@ export default function App() {
     }
   };
 
+  const reorderPlaylistTrack = async (id: string, path: string, toIndex: number) => {
+    const tracks = playlistDetail?.tracks ?? [];
+    const paths = tracks.map((f) => f.rel_path);
+    const from = paths.indexOf(path);
+    if (from < 0) return;
+    const [moved] = paths.splice(from, 1);
+    paths.splice(Math.min(toIndex, paths.length), 0, moved);
+    try {
+      const res = await apiFetch(`${getApiUrl()}/playlists/${id}/order`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({ paths }),
+      });
+      if (res.ok) {
+        fetchPlaylists();
+        loadPlaylist(id);
+      }
+    } catch {
+      // ignore — playlist stays in its previous order
+    }
+  };
+
   const deletePlaylist = async (id: string) => {
     try {
       const res = await apiFetch(`${getApiUrl()}/playlists/${id}`, { method: "DELETE" });
@@ -447,6 +545,80 @@ export default function App() {
     return out;
   }, [topTracks, byPath]);
 
+  // Artists & albums grouped from the library (name → tracks).
+  const groupBy = (key: (f: DownloadedFile) => string) => {
+    const m = new Map<string, DownloadedFile[]>();
+    for (const f of files) {
+      const k = key(f);
+      const arr = m.get(k) ?? [];
+      arr.push(f);
+      m.set(k, arr);
+    }
+    return [...m.entries()]
+      .map(([name, list]) => ({ name, files: list }))
+      .sort((a, b) => b.files.length - a.files.length || a.name.localeCompare(b.name));
+  };
+
+  const artists = useMemo(
+    () => groupBy((f) => f.artist || t("Unknown")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [files]
+  );
+  const albums = useMemo(
+    () => groupBy((f) => f.album || t("Unknown")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [files]
+  );
+
+  const pinnedEntries = useMemo(() => {
+    const out: {
+      kind: "artist" | "album" | "playlist";
+      name: string;
+      files: DownloadedFile[];
+      id?: string;
+      trackCount?: number;
+    }[] = [];
+    for (const pin of pins) {
+      if (pin.kind === "playlist") {
+        const pl = playlists.find((p) => p.id === pin.value);
+        if (pl) {
+          out.push({
+            kind: "playlist",
+            name: pl.name,
+            files: [],
+            id: pl.id,
+            trackCount: pl.track_count,
+          });
+        }
+        continue;
+      }
+      const list = pin.kind === "artist" ? artists : albums;
+      const entry = list.find((e) => e.name === pin.value);
+      if (entry) {
+        out.push({
+          kind: pin.kind,
+          name: entry.name,
+          files: entry.files,
+          trackCount: entry.files.length,
+        });
+      }
+    }
+    return out;
+  }, [pins, artists, albums, playlists]);
+
+  const artistName = activeNav.startsWith("artist:")
+    ? decodeURIComponent(activeNav.slice(7))
+    : null;
+  const albumName = activeNav.startsWith("album:")
+    ? decodeURIComponent(activeNav.slice(6))
+    : null;
+  const artistFiles = artistName
+    ? files.filter((f) => (f.artist || t("Unknown")) === artistName)
+    : [];
+  const albumFiles = albumName
+    ? files.filter((f) => (f.album || t("Unknown")) === albumName)
+    : [];
+
   // The ordered list of rel_paths for the current view — becomes the queue.
   const currentListPaths = (): string[] => {
     if (activeNav.startsWith("pl:")) {
@@ -474,11 +646,24 @@ export default function App() {
       .then(() => fetchHistory());
   };
 
+  // Builds the shuffle order (indices into the queue) starting at the current
+  // index, so shuffle never restarts from a random track.
+  const buildShuffleOrder = (list: string[], idx: number) => {
+    const others = list.map((_, i) => i).filter((i) => i !== idx);
+    for (let i = others.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [others[i], others[j]] = [others[j], others[i]];
+    }
+    shuffleOrderRef.current = [idx, ...others];
+  };
+
   const playFromList = (list: string[], idx: number) => {
     if (idx < 0 || idx >= list.length) return;
     const relPath = list[idx];
     queueRef.current = list;
     queueIndexRef.current = idx;
+    if (shuffle) buildShuffleOrder(list, idx);
+    setQueueTick((v) => v + 1);
     setCurrentTrackPath(relPath);
     fetchLyrics(relPath);
     setIsPlaying(true);
@@ -516,6 +701,14 @@ export default function App() {
   const handlePrevTrack = () => {
     const q = queueRef.current;
     if (q.length === 0) return;
+    // In shuffle mode, walk the shuffled order backwards; otherwise wrap.
+    if (shuffle && shuffleOrderRef.current.length > 0) {
+      const order = shuffleOrderRef.current;
+      const pos = order.indexOf(queueIndexRef.current);
+      const idx = pos <= 0 ? order[order.length - 1] : order[pos - 1];
+      playFromList(q, idx);
+      return;
+    }
     const idx = (queueIndexRef.current - 1 + q.length) % q.length;
     playFromList(q, idx);
   };
@@ -523,8 +716,114 @@ export default function App() {
   const handleNextTrack = () => {
     const q = queueRef.current;
     if (q.length === 0) return;
-    const idx = (queueIndexRef.current + 1) % q.length;
-    playFromList(q, idx);
+    // Repeat-one: replay the current track from the start.
+    if (repeatMode === "one") {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch((err) => console.error("Playback error:", err));
+      }
+      return;
+    }
+    if (shuffle && shuffleOrderRef.current.length > 0) {
+      const order = shuffleOrderRef.current;
+      const pos = order.indexOf(queueIndexRef.current);
+      if (pos < order.length - 1) {
+        playFromList(q, order[pos + 1]);
+      } else if (repeatMode === "all") {
+        playFromList(q, order[0]);
+      } else {
+        // Repeat off: stop at the end of the shuffled queue.
+        setIsPlaying(false);
+        if (audioRef.current) audioRef.current.pause();
+      }
+      return;
+    }
+    const idx = queueIndexRef.current + 1;
+    if (idx < q.length) {
+      playFromList(q, idx);
+    } else if (repeatMode === "all") {
+      playFromList(q, 0);
+    } else {
+      // Repeat off: stop at the end.
+      setIsPlaying(false);
+      if (audioRef.current) audioRef.current.pause();
+    }
+  };
+
+  const toggleShuffle = () => {
+    setShuffle((prev) => {
+      const next = !prev;
+      if (next && queueRef.current.length > 0) {
+        buildShuffleOrder(queueRef.current, queueIndexRef.current);
+      }
+      return next;
+    });
+  };
+
+  const cycleRepeat = () => {
+    setRepeatMode((prev) => (prev === "off" ? "all" : prev === "all" ? "one" : "off"));
+  };
+
+  // Move a queue entry to another position (drag & drop in the panel).
+  // The current index is adjusted so playback stays on the same track.
+  const reorderQueue = (from: number, to: number) => {
+    const q = [...queueRef.current];
+    if (from < 0 || from >= q.length || to < 0 || to >= q.length || from === to) return;
+    const cur = queueIndexRef.current;
+    const [moved] = q.splice(from, 1);
+    q.splice(to, 0, moved);
+    let newCur = cur;
+    if (from === cur) newCur = to;
+    else if (from < cur && to >= cur) newCur = cur - 1;
+    else if (from > cur && to <= cur) newCur = cur + 1;
+    queueRef.current = q;
+    queueIndexRef.current = newCur;
+    if (shuffle) buildShuffleOrder(q, newCur);
+    setQueueTick((v) => v + 1);
+  };
+
+  // Remove a track from the queue. If it was the current one, playback
+  // keeps running and the index moves to the next track.
+  const removeFromQueue = (idx: number) => {
+    const q = [...queueRef.current];
+    if (idx < 0 || idx >= q.length) return;
+    const cur = queueIndexRef.current;
+    q.splice(idx, 1);
+    if (q.length === 0) {
+      queueRef.current = [];
+      queueIndexRef.current = -1;
+      setCurrentTrackPath(null);
+      setIsPlaying(false);
+      if (audioRef.current) audioRef.current.pause();
+      setQueueTick((v) => v + 1);
+      return;
+    }
+    let newCur = cur;
+    if (idx < cur) newCur = cur - 1;
+    else if (idx === cur) newCur = Math.min(cur, q.length - 1);
+    queueRef.current = q;
+    queueIndexRef.current = newCur;
+    if (shuffle) buildShuffleOrder(q, newCur);
+    setQueueTick((v) => v + 1);
+  };
+
+  // Insert tracks right after the current one — used by the right-click
+  // context menu ("Play next") and the selection action bar.
+  const playNext = (paths: string[]) => {
+    if (paths.length === 0) return;
+    const q = queueRef.current;
+    if (q.length === 0) {
+      playFromList(paths, 0);
+      return;
+    }
+    const at = queueIndexRef.current + 1;
+    const next = [...q];
+    next.splice(at, 0, ...paths);
+    queueRef.current = next;
+    if (shuffle) buildShuffleOrder(next, queueIndexRef.current);
+    setQueueTick((v) => v + 1);
+    const added = paths.length;
+    addToast("info", t("Added to queue"), `${added} ${added > 1 ? t("tracks") : t("track")} ${t("will play next")}`);
   };
 
   const handleNavChange = (nav: string) => {
@@ -540,6 +839,18 @@ export default function App() {
     if (activeNav === "downloads" && !importEnabled) setActiveNav("songs");
     if (activeNav === "stats" && !statsEnabled) setActiveNav("songs");
   }, [importEnabled, statsEnabled, activeNav]);
+
+  const toggleSidebarSide = () => {
+    setSidebarRight((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("soneph_sidebar_pos", next ? "right" : "left");
+      } catch {
+        // storage unavailable — position stays in-memory
+      }
+      return next;
+    });
+  };
 
   const activeTasksCount = tasks.filter(
     (t) => t.status === "downloading" || t.status === "queued"
@@ -563,6 +874,26 @@ export default function App() {
 
   const playlistId = activeNav.startsWith("pl:") ? activeNav.slice(3) : null;
 
+  // Shared context handed to every plugin-contributed view.
+  const app: PluginApp = {
+    nav: activeNav,
+    setNav: setActiveNav,
+    files,
+    tasks,
+    playlists,
+    playlistDetail,
+    likes,
+    toggleLike,
+    playTrack: handleTrackPlay,
+    playList: playFromList,
+    playNext,
+    getApiUrl,
+    notify: addToast,
+    refreshFiles: fetchFiles,
+    currentPlayingPath: currentTrack ? currentTrack.rel_path : null,
+    isPlaying,
+  };
+
   return (
     <main className="h-screen w-screen bg-[#161618] flex overflow-hidden font-sans relative">
       {/* Aurora background: soft colored blobs that the liquid-glass surfaces refract */}
@@ -583,18 +914,28 @@ export default function App() {
         onPause={() => setIsPlaying(false)}
       />
 
-      {/* Sidebar */}
-      <Sidebar
-        totalFiles={files.length}
-        syncedCount={syncedCount}
-        activeFilter={activeFilter}
-        onFilterChange={setActiveFilter}
-        activeNav={activeNav}
-        onNavChange={handleNavChange}
-        activeTasksCount={activeTasksCount}
-        playlists={playlists}
-        onCreatePlaylist={createPlaylist}
-      />
+      {/* Sidebar — flippable left/right */}
+      {!sidebarRight && (
+        <Sidebar
+          side="left"
+          app={app}
+          pins={pins}
+          onTogglePin={togglePin}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          activeNav={activeNav}
+          onNavChange={handleNavChange}
+          playlists={playlists}
+          onCreatePlaylist={createPlaylist}
+          queueTracks={queueTracks}
+          currentIndex={queueRef.current.indexOf(currentTrackPath ?? "")}
+          onPlayQueueIndex={(i) => {
+            const q = queueRef.current;
+            if (i >= 0 && i < q.length) playFromList(q, i);
+          }}
+          onRemoveFromQueue={removeFromQueue}
+        />
+      )}
 
       {/* Main Content Panel */}
       <div className="flex-1 h-full flex flex-col overflow-hidden bg-[#161618] relative z-10">
@@ -607,6 +948,8 @@ export default function App() {
           currentNav={activeNav}
           currentPlaylistName={playlistDetail?.name}
           onOpenQueue={() => setActiveNav("downloads")}
+          sidebarRight={sidebarRight}
+          onToggleSidebar={toggleSidebarSide}
         />
 
         {/* Scrollable Main View */}
@@ -627,9 +970,16 @@ export default function App() {
               onToggleLike={toggleLike}
               onNavChange={setActiveNav}
               getApiUrl={getApiUrl}
+              pinned={pinnedEntries}
+              onPlayNext={playNext}
+              onSelectTrack={handleSelectTrackForDrawer}
+              onDelete={handleDeleteFile}
+              playlists={playlists}
+              onAddToPlaylist={addTrackToPlaylist}
+              onCreatePlaylist={handleCreateAndAdd}
             />
           ) : activeNav === "sync" ? (
-            <SyncSettingsView getApiUrl={getApiUrl} onNotify={addToast} />
+            <PluginHostView viewId="sync" app={app} />
           ) : activeNav === "lyrics" ? (
             <LyricsManagerView
               files={files}
@@ -641,25 +991,85 @@ export default function App() {
               onRefreshFiles={fetchFiles}
             />
           ) : activeNav === "downloads" ? (
-            <DownloadsView tasks={tasks} />
+            <PluginHostView viewId="downloads" app={app} />
           ) : activeNav === "stats" ? (
-            <StatsView
-              files={files}
-              likes={likes}
-              onToggleLike={toggleLike}
-              onPlayTrack={handleTrackPlay}
-              getApiUrl={getApiUrl}
-            />
+            <PluginHostView viewId="stats" app={app} />
           ) : activeNav === "marketplace" ? (
             <MarketplaceView />
+          ) : activeNav === "artists" ? (
+            <CollectionGrid
+              kind="artist"
+              entries={artists}
+              getApiUrl={getApiUrl}
+              onOpen={(name) => handleNavChange(`artist:${encodeURIComponent(name)}`)}
+              isPinned={isPinned}
+              onTogglePin={togglePin}
+              onPlayAll={(paths) => playFromList(paths, 0)}
+              onPlayNext={playNext}
+            />
+          ) : activeNav === "albums" ? (
+            <CollectionGrid
+              kind="album"
+              entries={albums}
+              getApiUrl={getApiUrl}
+              onOpen={(name) => handleNavChange(`album:${encodeURIComponent(name)}`)}
+              isPinned={isPinned}
+              onTogglePin={togglePin}
+              onPlayAll={(paths) => playFromList(paths, 0)}
+              onPlayNext={playNext}
+            />
+          ) : artistName ? (
+            <CollectionDetail
+              kind="artist"
+              name={artistName}
+              files={artistFiles}
+              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
+              isPlaying={isPlaying}
+              onPlayTrack={handleTrackPlay}
+              onPlayAll={(paths) => playFromList(paths, 0)}
+              onPlayNext={playNext}
+              onSelectTrack={handleSelectTrackForDrawer}
+              onDelete={handleDeleteFile}
+              getApiUrl={getApiUrl}
+              playlists={playlists}
+              onAddToPlaylist={addTrackToPlaylist}
+              onCreatePlaylist={createPlaylist}
+              likes={likes}
+              onToggleLike={toggleLike}
+              isPinned={isPinned}
+              onTogglePin={togglePin}
+            />
+          ) : albumName ? (
+            <CollectionDetail
+              kind="album"
+              name={albumName}
+              files={albumFiles}
+              currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
+              isPlaying={isPlaying}
+              onPlayTrack={handleTrackPlay}
+              onPlayAll={(paths) => playFromList(paths, 0)}
+              onPlayNext={playNext}
+              onSelectTrack={handleSelectTrackForDrawer}
+              onDelete={handleDeleteFile}
+              getApiUrl={getApiUrl}
+              playlists={playlists}
+              onAddToPlaylist={addTrackToPlaylist}
+              onCreatePlaylist={createPlaylist}
+              likes={likes}
+              onToggleLike={toggleLike}
+              isPinned={isPinned}
+              onTogglePin={togglePin}
+            />
           ) : playlistId ? (
             <PlaylistView
               playlist={playlistDetail}
               currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
               isPlaying={isPlaying}
               onPlayTrack={handleTrackPlay}
+              onPlayNext={playNext}
               onSelectTrack={handleSelectTrackForDrawer}
               onRemoveTrack={(path) => removeTrackFromPlaylist(playlistId, path)}
+              onReorder={(path, toIndex) => reorderPlaylistTrack(playlistId, path, toIndex)}
               onDeletePlaylist={() => deletePlaylist(playlistId)}
               onPlayAll={() =>
                 playlistDetail && playFromList(playlistDetail.tracks.map((f) => f.rel_path), 0)
@@ -670,6 +1080,10 @@ export default function App() {
               onCreatePlaylist={handleCreateAndAdd}
               likes={likes}
               onToggleLike={toggleLike}
+              isPinned={isPinned}
+              onTogglePin={togglePin}
+              libraryFiles={files}
+              suggestArtists={playlistDetail?.tracks.map((f) => f.artist).filter(Boolean) as string[]}
             />
           ) : (
             <TrackList
@@ -682,6 +1096,8 @@ export default function App() {
               currentPlayingPath={currentTrack ? currentTrack.rel_path : null}
               isPlaying={isPlaying}
               onTrackPlay={handleTrackPlay}
+              onPlayList={playFromList}
+              onPlayNext={playNext}
               onSelectTrack={handleSelectTrackForDrawer}
               onDelete={handleDeleteFile}
               getApiUrl={getApiUrl}
@@ -694,6 +1110,29 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Sidebar on the right side of the window */}
+      {sidebarRight && (
+        <Sidebar
+          side="right"
+          app={app}
+          pins={pins}
+          onTogglePin={togglePin}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          activeNav={activeNav}
+          onNavChange={handleNavChange}
+          playlists={playlists}
+          onCreatePlaylist={createPlaylist}
+          queueTracks={queueTracks}
+          currentIndex={queueRef.current.indexOf(currentTrackPath ?? "")}
+          onPlayQueueIndex={(i) => {
+            const q = queueRef.current;
+            if (i >= 0 && i < q.length) playFromList(q, i);
+          }}
+          onRemoveFromQueue={removeFromQueue}
+        />
+      )}
 
       {/* Right Side Lyrics & Details Column (Non-blocking window panel) */}
       <LyricsDrawer
@@ -720,6 +1159,18 @@ export default function App() {
         audioRef={audioRef}
         onTimeUpdate={(t) => setCurrentTime(t)}
         getApiUrl={getApiUrl}
+        queueTracks={queueTracks}
+        currentIndex={queueRef.current.indexOf(currentTrackPath ?? "")}
+        shuffle={shuffle}
+        onToggleShuffle={toggleShuffle}
+        repeatMode={repeatMode}
+        onCycleRepeat={cycleRepeat}
+        onPlayIndex={(i) => {
+          const q = queueRef.current;
+          if (i >= 0 && i < q.length) playFromList(q, i);
+        }}
+        onReorderQueue={reorderQueue}
+        onRemoveFromQueue={removeFromQueue}
       />
 
       {/* Karaoke Style Synchronized Lyrics Modal */}

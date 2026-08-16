@@ -1,15 +1,13 @@
 import React from "react";
-import LiquidGlass from "liquid-glass-react";
-import { Loader2, CheckCircle2, AlertCircle, Clock, Zap, Music, Disc, DownloadCloud } from "lucide-react";
-import type { DownloadTask } from "@/types";
+import { Glass } from "./Glass";
+import { CheckCircle2, AlertCircle, Clock, Zap, Music, Disc, DownloadCloud } from "lucide-react";
+import { cleanTitle } from "@/format";
+import type { PluginViewProps } from "@/framework/plugin.types";
 import { useI18n } from "@/i18n";
 
-interface DownloadsViewProps {
-  tasks: DownloadTask[];
-}
-
-export const DownloadsView: React.FC<DownloadsViewProps> = ({ tasks }) => {
+export const DownloadsView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
+  const tasks = app.tasks;
 
   const active = tasks.filter((x) => x.status === "downloading");
   const queued = tasks.filter((x) => x.status === "queued");
@@ -42,15 +40,15 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({ tasks }) => {
               const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
               const currentSong = task.current_track || t("Processing playlist...");
               return (
-                <LiquidGlass key={task.id} cornerRadius={14} padding="0px" blurAmount={0.02} displacementScale={20}>
-                <div className="bg-[#26262a]/50 border border-apple-pink/30 rounded-xl p-3.5 space-y-3">
+                <Glass key={task.id} cornerRadius={14}>
+                <div className="border border-apple-pink/30 rounded-xl p-3.5 space-y-3">
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 rounded-lg bg-apple-pink/20 border border-apple-pink/40 flex items-center justify-center text-apple-pink shrink-0 mt-0.5">
                       <Music className="w-4.5 h-4.5 animate-bounce" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-apple-pink">{t("Now Downloading")}</span>
-                      <p className="text-xs font-bold text-white truncate leading-snug">{currentSong}</p>
+                      <p className="text-xs font-bold text-white truncate leading-snug">{cleanTitle(currentSong)}</p>
                       <p className="text-[10px] text-apple-subtext truncate mt-0.5">{task.url}</p>
                     </div>
                   </div>
@@ -65,7 +63,7 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({ tasks }) => {
                   </div>
                   <p className="text-[11px] text-zinc-400 truncate pt-0.5">{task.progress}</p>
                 </div>
-                </LiquidGlass>
+                </Glass>
               );
             })}
           </div>
@@ -84,7 +82,7 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({ tasks }) => {
               <div key={`recent_${idx}`} className="bg-[#242428]/60 border border-emerald-500/20 rounded-xl p-2.5 flex items-center justify-between text-xs text-zinc-200">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <Disc className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="truncate font-semibold text-white">{song}</span>
+                  <span className="truncate font-semibold text-white">{cleanTitle(song)}</span>
                 </div>
                 <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium shrink-0">{t("Downloaded")}</span>
               </div>

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Search, Music, Play, Pause, RefreshCw, FileText } from "lucide-react";
+import { cleanTitle } from "@/format";
 import type { DownloadedFile } from "@/types";
 import { useI18n } from "@/i18n";
 
@@ -211,7 +212,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
                           isSelected ? "text-apple-pink" : "text-white"
                         }`}
                       >
-                        {file.title}
+                        {cleanTitle(file.title)}
                       </p>
                       <p className="text-[11px] text-apple-subtext truncate font-normal">
                         {file.artist}

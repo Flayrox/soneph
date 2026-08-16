@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Sparkles, ArrowRight, Check } from "lucide-react";
-import { MODULES, defaultModules } from "@/modules";
+import { defaultPluginIds, toggleablePlugins } from "@/framework/pluginRegistry";
 import { useI18n } from "@/i18n";
 
 interface OnboardingViewProps {
@@ -9,7 +9,8 @@ interface OnboardingViewProps {
 
 export const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinish }) => {
   const { t } = useI18n();
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultModules()));
+  const MODULES = toggleablePlugins();
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultPluginIds()));
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -29,13 +30,13 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinish }) => {
             <Sparkles className="w-4 h-4" />
             <span className="text-[11px] font-bold uppercase tracking-wider">{t("Welcome to soneph")}</span>
           </div>
-          <h2 className="text-2xl font-bold text-white">{t("Choose your modules")}</h2>
+          <h2 className="text-2xl font-bold text-white">{t("Choose your plugins")}</h2>
           <p className="text-sm text-zinc-400 mt-2">
-            {t("Enable the features you want. You can change this anytime in the Marketplace.")}
+            {t("Enable the plugins you want. You can change this anytime in the Marketplace.")}
           </p>
         </div>
 
-        {/* Module cards */}
+        {/* Plugin cards */}
         <div className="space-y-3">
           {MODULES.map((m) => {
             const isOn = selected.has(m.id);
@@ -76,7 +77,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onFinish }) => {
         </button>
 
         <p className="text-center text-[11px] text-zinc-600">
-          {t("All modules are optional — the player, library and lyrics stay always on.")}
+          {t("All plugins are optional — the player, library and lyrics stay always on.")}
         </p>
       </div>
     </div>

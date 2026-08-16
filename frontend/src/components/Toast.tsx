@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import LiquidGlass from "liquid-glass-react";
+import { Glass } from "./Glass";
 import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 
 export interface ToastMessage {
@@ -36,8 +36,8 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   }, [toast, onDismiss]);
 
   return (
-    <LiquidGlass cornerRadius={12} padding="0px" blurAmount={0.02} displacementScale={20}>
-    <div className="pointer-events-auto bg-[#1e1e22]/55 rounded-lg p-3 flex items-start gap-3 font-mono transition-all animate-slide-up">
+    <Glass cornerRadius={12}>
+    <div className="pointer-events-auto p-3 flex items-start gap-3 font-mono transition-all animate-slide-up">
       {toast.type === "success" && (
         <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
       )}
@@ -60,6 +60,6 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
         <X className="w-3.5 h-3.5" />
       </button>
     </div>
-    </LiquidGlass>
+    </Glass>
   );
 };

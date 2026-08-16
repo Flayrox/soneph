@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import LiquidGlass from "liquid-glass-react";
-import { Download, Loader2, Search, SlidersHorizontal, Check } from "lucide-react";
+import { Download, Loader2, Search, SlidersHorizontal, Check, PanelLeft, PanelRight } from "lucide-react";
+import { Glass } from "./Glass";
 import { useI18n, LangToggle } from "@/i18n";
 
 interface AppHeaderProps {
@@ -11,6 +11,9 @@ interface AppHeaderProps {
   currentNav: string;
   currentPlaylistName?: string | null;
   onOpenQueue?: () => void;
+  /** Sidebar is on the right side of the window. */
+  sidebarRight?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -21,6 +24,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   currentNav,
   currentPlaylistName,
   onOpenQueue,
+  sidebarRight = false,
+  onToggleSidebar,
 }) => {
   const { t } = useI18n();
   const [url, setUrl] = useState("");
@@ -83,9 +88,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {importEnabled && (
           <>
 
-        {/* Import Link Form */}
-        <LiquidGlass cornerRadius={999} padding="0 6px" blurAmount={0.015} displacementScale={25}>
-        <form onSubmit={handleSubmit} className="relative flex items-center w-64 sm:w-80">
+        {/* Import Link Form — glass */}
+        <Glass cornerRadius={999} className="shrink-0 w-64 sm:w-80 min-w-0">
+        <form onSubmit={handleSubmit} className="relative flex items-center w-full px-3 py-1">
           <Search className="w-4 h-4 absolute left-3.5 text-apple-subtext" />
           <input
             type="text"
@@ -107,30 +112,41 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <span>{t("Import")}</span>
           </button>
         </form>
-        </LiquidGlass>
+        </Glass>
           </>
         )}
 
-        <LiquidGlass cornerRadius={999} padding="2px" blurAmount={0.015} displacementScale={20}>
-          <LangToggle />
-        </LiquidGlass>
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="w-8 h-8 rounded-full flex items-center justify-center bg-[#242428]/70 text-apple-subtext hover:text-white border border-white/10 hover:border-white/20 transition-all"
+            title={sidebarRight ? t("Move sidebar to the left") : t("Move sidebar to the right")}
+          >
+            {sidebarRight ? <PanelLeft className="w-3.5 h-3.5" /> : <PanelRight className="w-3.5 h-3.5" />}
+          </button>
+        )}
+
+        <Glass cornerRadius={999} className="shrink-0">
+          <div className="p-0.5">
+            <LangToggle />
+          </div>
+        </Glass>
 
         {/* Clean Apple macOS Options Menu Trigger */}
         <div className="relative" ref={popoverRef}>
-          <LiquidGlass cornerRadius={999} padding="0px" blurAmount={0.015} displacementScale={20}>
-            <button
-              type="button"
-              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
-                isSettingsOpen
-                  ? "bg-apple-pink text-white border-apple-pink shadow-md"
-                  : "bg-[#242428]/70 text-apple-subtext hover:text-white border-white/10 hover:border-white/20"
-              }`}
-              title={t("Download Preferences")}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-            </button>
-          </LiquidGlass>
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+            className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+              isSettingsOpen
+                ? "bg-apple-pink text-white border-apple-pink shadow-md"
+                : "bg-[#242428]/70 text-apple-subtext hover:text-white border-white/10 hover:border-white/20"
+            }`}
+            title={t("Download Preferences")}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+          </button>
 
           {/* Native macOS Style Popover Menu */}
           {isSettingsOpen && (
@@ -217,16 +233,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       {/* Active Tasks Pill */}
       <div>
         {activeTasksCount > 0 && importEnabled && (
-          <LiquidGlass cornerRadius={999} padding="0px" blurAmount={0.015} displacementScale={20}>
-            <button
-              onClick={onOpenQueue}
-              className="flex items-center gap-2 bg-apple-pink/20 text-apple-pink hover:bg-apple-pink/30 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer"
-              title={t("Click to view active download queue details")}
-            >
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>{activeTasksCount} {t("Syncing...")}</span>
-            </button>
-          </LiquidGlass>
+          <button
+            onClick={onOpenQueue}
+            className="flex items-center gap-2 bg-apple-pink/20 text-apple-pink hover:bg-apple-pink/30 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer"
+            title={t("Click to view active download queue details")}
+          >
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>{activeTasksCount} {t("Syncing...")}</span>
+          </button>
         )}
       </div>
     </header>

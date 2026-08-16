@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { X, Music, Play, Pause, RefreshCw, Copy, Check } from "lucide-react";
+import { cleanTitle } from "@/format";
 import type { DownloadedFile } from "@/types";
 import { useI18n } from "@/i18n";
 import { apiFetch } from "@/api";
@@ -268,7 +269,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
             />
           </div>
           <div className="min-w-0">
-            <h3 className="text-xs font-bold text-white truncate">{track.title}</h3>
+            <h3 className="text-xs font-bold text-white truncate">{cleanTitle(track.title)}</h3>
             <p className="text-[11px] text-apple-subtext truncate">{track.artist}</p>
           </div>
         </div>

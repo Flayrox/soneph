@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/i18n";
 import { apiFetch, setToken, getToken } from "@/api";
+import type { PluginViewProps } from "@/framework/plugin.types";
 
 interface SyncStatus {
   available: boolean;
@@ -34,13 +35,10 @@ interface AppSettings {
   threads: number;
 }
 
-interface SyncSettingsViewProps {
-  getApiUrl: () => string;
-  onNotify: (type: "success" | "error" | "info", title: string, message: string) => void;
-}
-
-export const SyncSettingsView: React.FC<SyncSettingsViewProps> = ({ getApiUrl, onNotify }) => {
+export const SyncSettingsView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
+  const getApiUrl = app.getApiUrl;
+  const onNotify = app.notify;
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [settings, setSettings] = useState<AppSettings>({ workers: 4, threads: 6 });
   const [loading, setLoading] = useState(true);

@@ -205,3 +205,41 @@ func (s *Store) RemoveTrack(id, track string) (Playlist, error) {
 	}
 	return p, nil
 }
+
+// Reorder replaces the playlist's track order with the given list (used by
+// drag-and-drop reordering). Unknown paths are dropped; the rest keep the
+// provided order.
+func (s *Store) Reorder(id string, tracks []string) (Playlist, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, err := s.load(id)
+	if err != nil {
+		return Playlist{}, err
+	}
+	known := make(map[string]bool, len(p.Tracks))
+	for _, t := range p.Tracks {
+		known[t] = true
+	}
+	out := make([]string, 0, len(tracks))
+	seen := make(map[string]bool, len(tracks))
+	for _, t := range tracks {
+		if !known[t] || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	// Keep any tracks the client didn't mention (append in original order).
+	for _, t := range p.Tracks {
+		if !seen[t] {
+			out = append(out, t)
+		}
+	}
+	p.Tracks = out
+	p.UpdatedAt = time.Now()
+	if err := s.save(p); err != nil {
+		return Playlist{}, err
+	}
+	return p, nil
+}
