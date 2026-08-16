@@ -106,6 +106,7 @@ coverage/
 test-results/
 cypress/videos/
 cypress/screenshots/
+*.tsbuildinfo
 
 # ==========================================
 # Project Specific & Local Storage
@@ -113,3 +114,8 @@ cypress/screenshots/
 downloads/
 .syncthing/
 syncthing_config/data/
+
+# Built frontend is embedded in the Go binary; only the placeholder is tracked
+!backend/web/dist/
+backend/web/dist/*
+!backend/web/dist/index.html

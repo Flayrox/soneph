@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import { X, Loader2, CheckCircle2, AlertCircle, Clock, Zap, Music, Disc } from "lucide-react";
 import { DownloadTask } from "./TrackList";
@@ -55,14 +53,14 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             <div className="space-y-3">
               <h3 className="text-xs font-semibold text-apple-pink uppercase tracking-wider flex items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5" />
-                <span>Downloading Now (8 Threads)</span>
+                <span>Downloading Now</span>
               </h3>
 
               <div className="space-y-3">
                 {activeDownloading.map((task) => {
                   const total = task.total_tracks || 0;
                   const done = task.completed_count || 0;
-                  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+                  const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
                   const currentSong = task.current_track || "Processing playlist...";
 
                   return (
@@ -89,7 +87,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                       <div className="space-y-1.5 pt-1 border-t border-white/5">
                         <div className="flex justify-between text-xs text-apple-subtext font-medium">
                           <span>
-                            {total > 0 ? `${done} of ${total} songs` : task.progress}
+                            {total > 0 ? `${Math.min(done, total)} of ${total} songs` : task.progress}
                           </span>
                           <span className="font-bold text-white">{percent}%</span>
                         </div>
@@ -131,7 +129,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                       <span className="truncate font-semibold text-white">{song}</span>
                     </div>
                     <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium shrink-0">
-                      Synced
+                      Downloaded
                     </span>
                   </div>
                 ))}

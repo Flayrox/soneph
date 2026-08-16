@@ -1,35 +1,9 @@
 import React from "react";
 import { Play, Pause, Trash2, CheckCircle2, Music, Clock, Sparkles, FileText, AlertCircle } from "lucide-react";
+import type { DownloadedFile, DownloadTask } from "@/types";
 
-export interface DownloadedFile {
-  rel_path: string;
-  file_name?: string;
-  title: string;
-  artist: string;
-  album: string;
-  duration?: number;
-  size_bytes?: number;
-  has_lyrics?: boolean;
-  lyrics_type?: "synced" | "unsynced" | "none";
-  lrc_path?: string;
-  mod_time: string;
-}
-
-export interface DownloadTask {
-  id: string;
-  url: string;
-  bitrate?: string;
-  order?: string;
-  status: "queued" | "downloading" | "completed" | "failed";
-  progress: string;
-  current_track?: string;
-  total_tracks?: number;
-  completed_count?: number;
-  recent_tracks?: string[];
-  logs: string[];
-  created_at: string;
-  error?: string;
-}
+// Ré-export pour compatibilité avec les imports existants
+export type { DownloadedFile, DownloadTask };
 
 interface TrackListProps {
   files: DownloadedFile[];
@@ -99,7 +73,7 @@ export const TrackList: React.FC<TrackListProps> = ({
             const currentSong = task.current_track || task.url;
             const total = task.total_tracks || 0;
             const done = task.completed_count || 0;
-            const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+            const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 
             return (
               <tr

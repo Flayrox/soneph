@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useEffect, useRef, useState } from "react";
 import { X, Disc, Music2 } from "lucide-react";
 import { DownloadedFile } from "./TrackList";

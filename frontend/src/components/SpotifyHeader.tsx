@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useRef, useEffect } from "react";
 import { Download, Loader2, Search, SlidersHorizontal, Check } from "lucide-react";
 
@@ -54,6 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
         return "Pins";
       case "lyrics":
         return "Lyrics";
+      case "sync":
+        return "Sync & Réglages";
       default:
         return "Songs";
     }

@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useState, useEffect, useCallback } from "react";
 import { Music2, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 

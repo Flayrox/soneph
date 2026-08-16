@@ -1,29 +1,23 @@
-"use client";
-
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { TrackList, DownloadedFile } from "@/components/TrackList";
+import { TrackList } from "@/components/TrackList";
 import { Player } from "@/components/Player";
 import { LyricsModal } from "@/components/LyricsModal";
 import { QueueDrawer } from "@/components/QueueDrawer";
 import { ToastContainer, ToastMessage } from "@/components/Toast";
 import { LyricsDrawer } from "@/components/LyricsDrawer";
 import { LyricsManagerView } from "@/components/LyricsManagerView";
+import { SyncSettingsView } from "@/components/SyncSettingsView";
+import type { DownloadedFile, DownloadTask } from "@/types";
 
-export interface DownloadTask {
-  id: string;
-  url: string;
-  bitrate?: string;
-  order?: string;
-  status: "queued" | "downloading" | "completed" | "failed";
-  progress: string;
-  logs: string[];
-  created_at: string;
-  error?: string;
-}
+// The frontend is served from the same origin as the Go backend
+// (Vite dev proxy in development, go:embed in production), so all
+// API + WebSocket URLs are relative.
+const API_URL = "/api";
+const WS_URL = "/api/ws";
 
-export default function Home() {
+export default function App() {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [files, setFiles] = useState<DownloadedFile[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>("");
@@ -50,21 +44,9 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const getApiUrl = () => {
-    if (typeof window !== "undefined") {
-      const hostname = window.location.hostname;
-      return `http://${hostname}:8080/api`;
-    }
-    return "http://localhost:8080/api";
-  };
+  const getApiUrl = () => API_URL;
 
-  const getWsUrl = () => {
-    if (typeof window !== "undefined") {
-      const hostname = window.location.hostname;
-      return `ws://${hostname}:8080/api/ws`;
-    }
-    return "ws://localhost:8080/api/ws";
-  };
+  const getWsUrl = () => WS_URL;
 
   const getStreamUrl = (relPath: string) => {
     return `${getApiUrl()}/stream?path=${encodeURIComponent(relPath)}`;
@@ -145,8 +127,8 @@ export default function Home() {
             if (updatedTask.status === "completed") {
               addToast(
                 "success",
-                "Synced to l'app Musique",
-                `Track and clean lyrics ready in Music.app & iCloud!`
+                "Download Complete",
+                `Audio ready — lyrics syncing in background.`
               );
               fetchFiles();
             } else if (updatedTask.status === "failed") {
@@ -346,9 +328,11 @@ export default function Home() {
           onOpenQueue={() => setIsQueueOpen(true)}
         />
 
-        {/* Scrollable Main View (Songs vs Lyrics Management Center) */}
+        {/* Scrollable Main View (Songs / Lyrics / Sync & Settings) */}
         <div className="flex-1 overflow-y-auto pb-32">
-          {activeNav === "lyrics" ? (
+          {activeNav === "sync" ? (
+            <SyncSettingsView getApiUrl={getApiUrl} onNotify={addToast} />
+          ) : activeNav === "lyrics" ? (
             <LyricsManagerView
               files={files}
               currentPlayingPath={currentTrack ? currentTrack.rel_path : null}

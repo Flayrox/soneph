@@ -4,6 +4,27 @@ Ce guide récapitule toutes les méthodes gratuites et payantes pour transférer
 
 ---
 
+## 🚀 Méthode recommandée : Auto-Import automatique (script `watch_and_import.sh`)
+
+La méthode la plus simple sur macOS : le script surveille le dossier de téléchargements (ou le dossier synchronisé par Syncthing) et copie chaque **nouveau** fichier `.mp3`/`.m4a`/`.flac` (+ son `.lrc`) dans le dossier **« Automatically Add to Music »** de l'app Musique. Music.app importe tout seul, **sans doublon** et **sans AppleScript**.
+
+```bash
+# 1. (Optionnel mais recommandé) réaction instantanée
+brew install fswatch
+
+# 2. Lancer le watcher (dossier par défaut : downloads/ du repo)
+./scripts/watch_and_import.sh
+
+# 3. Dossier synchronisé par Syncthing (si soneph tourne sur un VPS)
+SONEPH_DOWNLOADS=/chemin/vers/dossier-syncthing ./scripts/watch_and_import.sh
+```
+
+> ⚠️ Si tu avais attaché l'ancienne **Folder Action** (`import_to_music.scpt`) au dossier synchronisé, **détache-la** (clic droit sur le dossier dans le Finder → Folder Actions → Détacher), sinon tu garderas des doublons.
+
+> 💡 Premier lancement : la bibliothèque déjà présente est marquée comme déjà importée (aucun doublon). Utilise `SONEPH_IMPORT_ALL=1` pour tout ré-importer explicitement.
+
+---
+
 ## 🍏 Méthode 1 : Synchronisation Native macOS Finder (100% Gratuite — Sans Abonnement)
 
 C'est la méthode recommandée sur Mac pour mettre vos musiques directement dans l'application **Musique** native d'iOS sans payer d'abonnement l'app Musique.
@@ -24,7 +45,7 @@ C'est la méthode recommandée sur Mac pour mettre vos musiques directement dans
 
 Accédez à votre serveur soneph (en local ou sur votre VPS) depuis le navigateur Safari de votre iPhone :
 
-1. Ouvrez **Safari** sur iPhone et entrez l'adresse de votre serveur (ex: `http://192.168.x.x:3000` ou `http://vps-ip:3000`).
+1. Ouvrez **Safari** sur iPhone et entrez l'adresse de votre serveur (ex: `http://192.168.x.x:8080` ou `http://vps-ip:8080`).
 2. Appuyez sur le bouton **Partager** (icône carré avec flèche vers le haut dans Safari).
 3. Sélectionnez **Sur l'écran d'accueil** *(Add to Home Screen)*.
 

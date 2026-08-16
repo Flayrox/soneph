@@ -8,7 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"soneph-backend/pkg/config"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -46,7 +49,29 @@ type Manager struct {
 	broadcastFn func(event string, data interface{})
 }
 
+// GetPythonExec returns the Python interpreter used to run our helper
+// scripts. It prefers the interpreter that spotdl itself uses, because that
+// environment ships with the deps the scripts need (mutagen, syncedlyrics).
+// This keeps local dev (homebrew python) and Docker working identically.
 func GetPythonExec() string {
+	if spotdlPath, err := exec.LookPath("spotdl"); err == nil {
+		if data, err := os.ReadFile(spotdlPath); err == nil {
+			shebang := strings.TrimPrefix(strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0]), "#!")
+			if fields := strings.Fields(shebang); len(fields) > 0 {
+				prog := fields[0]
+				if prog == "/usr/bin/env" && len(fields) > 1 {
+					prog = fields[1]
+				}
+				if strings.HasPrefix(prog, "/") {
+					if _, err := os.Stat(prog); err == nil {
+						return prog
+					}
+				} else if _, err := exec.LookPath(prog); err == nil {
+					return prog
+				}
+			}
+		}
+	}
 	if _, err := exec.LookPath("python3"); err == nil {
 		return "python3"
 	}
@@ -86,6 +111,15 @@ func GetScriptPath(scriptName string) string {
 	return scriptName
 }
 
+func envInt(name string, def int) int {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
 func NewManager(downloadDir string, broadcastFn func(event string, data interface{})) *Manager {
 	if downloadDir == "" {
 		downloadDir = "./downloads"
@@ -99,8 +133,13 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 		broadcastFn: broadcastFn,
 	}
 
-	// 16 worker threads for parallel downloads
-	for i := 0; i < 16; i++ {
+	// Parallel spotdl processes (one per queued URL). Keep this modest:
+	// each process already downloads several tracks concurrently, and going
+	// too aggressive triggers /YouTube rate limiting which makes
+	// everything slower. Réglable via l'UI (config) ou SPOTDL_WORKERS.
+	cfg := config.Load()
+	workers := envInt("SPOTDL_WORKERS", cfg.Workers)
+	for i := 0; i < workers; i++ {
 		go m.worker()
 	}
 	return m
@@ -141,14 +180,15 @@ func (m *Manager) GetTasks() []*DownloadTask {
 	list := make([]*DownloadTask, 0, len(m.tasks))
 	for _, task := range m.tasks {
 		taskCopy := *task
-		if task.RecentTracks != nil {
-			taskCopy.RecentTracks = append([]string(nil), task.RecentTracks...)
-		}
-		if task.Logs != nil {
-			taskCopy.Logs = append([]string(nil), task.Logs...)
-		}
+		taskCopy.RecentTracks = append([]string{}, task.RecentTracks...)
+		taskCopy.Logs = append([]string{}, task.Logs...)
 		list = append(list, &taskCopy)
 	}
+	// Map iteration order is random — return tasks in queue order
+	// (oldest first) so the UI shows a stable, FIFO view.
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].CreatedAt.Before(list[j].CreatedAt)
+	})
 	return list
 }
 
@@ -160,12 +200,8 @@ func (m *Manager) GetTask(id string) (*DownloadTask, bool) {
 		return nil, false
 	}
 	taskCopy := *t
-	if t.RecentTracks != nil {
-		taskCopy.RecentTracks = append([]string(nil), t.RecentTracks...)
-	}
-	if t.Logs != nil {
-		taskCopy.Logs = append([]string(nil), t.Logs...)
-	}
+	taskCopy.RecentTracks = append([]string{}, t.RecentTracks...)
+	taskCopy.Logs = append([]string{}, t.Logs...)
 	return &taskCopy, true
 }
 
@@ -175,12 +211,8 @@ func (m *Manager) notifyUpdate(task *DownloadTask) {
 	}
 	m.mu.RLock()
 	taskCopy := *task
-	if task.RecentTracks != nil {
-		taskCopy.RecentTracks = append([]string(nil), task.RecentTracks...)
-	}
-	if task.Logs != nil {
-		taskCopy.Logs = append([]string(nil), task.Logs...)
-	}
+	taskCopy.RecentTracks = append([]string{}, task.RecentTracks...)
+	taskCopy.Logs = append([]string{}, task.Logs...)
 	m.mu.RUnlock()
 
 	m.broadcastFn("task_update", &taskCopy)
@@ -245,14 +277,18 @@ func (m *Manager) runTask(task *DownloadTask) {
 		overwriteFlag = "force"
 	}
 
+	// Audio-only download: lyrics are fetched afterwards in a background job
+	// (see fetchLyricsInBackground) so a slow lyrics provider never stalls
+	// the download queue. --threads controls parallel audio downloads;
+	// keep it modest to avoid YouTube/ rate limiting. Réglable via
+	// l'UI (config) ou SPOTDL_THREADS.
+	threads := envInt("SPOTDL_THREADS", config.Load().Threads)
 	cmdArgs := []string{
 		"download", task.URL,
 		"--bitrate", task.Bitrate,
-		"--threads", "16",
+		"--threads", strconv.Itoa(threads),
 		"--overwrite", overwriteFlag,
-		"--lyrics", "synced", "genius",
 		"--max-retries", "1",
-		"--generate-lrc",
 		"--output", outputTemplate,
 	}
 
@@ -333,17 +369,107 @@ func (m *Manager) runTask(task *DownloadTask) {
 		m.mu.Unlock()
 	}
 
+	m.mu.Lock()
+	task.Status = StatusCompleted
+	task.Progress = "Download and metadata sync complete"
+	task.Logs = append(task.Logs, fmt.Sprintf("[%s] All tracks downloaded! Fetching lyrics in background...", time.Now().Format("15:04:05")))
+	m.mu.Unlock()
+
+	m.notifyUpdate(task)
+
+	// Lyrics are fetched and embedded in the background so the queue never
+	// stalls on a slow lyrics provider. Progress lands in the task logs and
+	// a "downloads_changed" event lets the frontend refresh file metadata.
+	go m.fetchLyricsInBackground(task)
+}
+
+// appendLog appends a line to a task's logs under lock, keeping the list
+// bounded so a long job never grows it without limit.
+func (m *Manager) appendLog(task *DownloadTask, line string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(task.Logs) > 300 {
+		task.Logs = task.Logs[len(task.Logs)-250:]
+	}
+	task.Logs = append(task.Logs, line)
+}
+
+// fetchLyricsInBackground scans the download folder for MP3s missing a .lrc
+// sidecar, fetches synced lyrics (parallel, 6s timeout per song), then embeds
+// them into the ID3v2.3 tags. It never blocks the download queue.
+func (m *Manager) fetchLyricsInBackground(task *DownloadTask) {
+	pythonExec := GetPythonExec()
+	lyricsScript := GetScriptPath("lyrics_retry.py")
+
+	cmd := exec.Command(pythonExec, lyricsScript, m.downloadDir)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		return
+	}
+
+	lyricsDone := false
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		var evt map[string]interface{}
+		if json.Unmarshal([]byte(line), &evt) != nil {
+			continue
+		}
+
+		evtType, _ := evt["type"].(string)
+		switch evtType {
+		case "scan_complete":
+			if v, ok := evt["missing_lrc"].(float64); ok {
+				m.appendLog(task, fmt.Sprintf("[%s] Lyrics: %d chanson(s) sans paroles — récupération en arrière-plan...", time.Now().Format("15:04:05"), int(v)))
+				m.notifyUpdate(task)
+			}
+		case "success":
+			if name, ok := evt["filename"].(string); ok {
+				m.appendLog(task, fmt.Sprintf("[%s] ✅ Lyrics: %s", time.Now().Format("15:04:05"), name))
+				m.notifyUpdate(task)
+			}
+		case "failed":
+			if name, ok := evt["filename"].(string); ok {
+				m.appendLog(task, fmt.Sprintf("[%s] ⚠️ Lyrics introuvables: %s", time.Now().Format("15:04:05"), name))
+				m.notifyUpdate(task)
+			}
+		case "done":
+			m.mu.Lock()
+			lyricsDone = true
+			m.mu.Unlock()
+			if v, ok := evt["success"].(float64); ok {
+				failed := 0.0
+				if f, ok := evt["failed"].(float64); ok {
+					failed = f
+				}
+				m.appendLog(task, fmt.Sprintf("[%s] Lyrics: %d OK, %d introuvables.", time.Now().Format("15:04:05"), int(v), int(failed)))
+			}
+			m.notifyUpdate(task)
+		}
+	}
+	_ = cmd.Wait()
+
+	// Embed all .lrc files into the MP3 ID3v2.3 tags (USLT + SYLT).
 	embedScript := GetScriptPath("embed_lyrics.py")
 	embedCmd := exec.Command(pythonExec, embedScript, m.downloadDir)
 	_ = embedCmd.Run()
 
 	m.mu.Lock()
-	task.Status = StatusCompleted
-	task.Progress = "Download and metadata sync complete"
-	task.Logs = append(task.Logs, fmt.Sprintf("[%s] All tracks downloaded & synced!", time.Now().Format("15:04:05")))
+	task.Logs = append(task.Logs, fmt.Sprintf("[%s] Lyrics embeddées dans les tags ID3.", time.Now().Format("15:04:05")))
+	if !lyricsDone {
+		task.Logs = append(task.Logs, "[INFO] Aucun fichier .lrc manquant ou job lyrics interrompu.")
+	}
 	m.mu.Unlock()
-
 	m.notifyUpdate(task)
+
+	// Let the frontend refresh the file list (has_lyrics / lyrics_type).
+	if m.broadcastFn != nil {
+		m.broadcastFn("downloads_changed", nil)
+	}
 }
 
 func (m *Manager) failTask(task *DownloadTask, errorMsg string) {

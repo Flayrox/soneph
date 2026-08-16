@@ -1,5 +1,3 @@
-"use client";
-
 import React from "react";
 import {
   Search,
@@ -17,6 +15,7 @@ import {
   FolderCheck,
   Loader2,
   FileText,
+  Settings2,
 } from "lucide-react";
 import { LyricsRetryPanel } from "./LyricsRetryPanel";
 
@@ -46,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "artists", label: "Artists", icon: User },
     { id: "albums", label: "Albums", icon: Disc },
     { id: "pins", label: "Pins", icon: Pin },
+    { id: "sync", label: "Sync & Réglages", icon: Settings2 },
   ];
 
   if (activeTasksCount > 0) {

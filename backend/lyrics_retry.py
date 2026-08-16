@@ -14,7 +14,7 @@ import sys
 import glob
 import json
 import time
-import signal
+import socket
 import threading
 import concurrent.futures
 
@@ -23,23 +23,12 @@ def log(event_type: str, data: dict):
     print(json.dumps({"type": event_type, **data}), flush=True)
 
 # ── Timeout helper ────────────────────────────────────────────────────────────
+# ⚠️  Un timeout via signal.SIGALRM ne peut PAS être utilisé dans les threads
+# (ValueError: signal only works in main thread) — le pool parallèle ci-dessous
+# échouerait en silence. On borne donc chaque requête réseau avec un timeout
+# de socket par défaut, qui s'applique à tous les threads.
 
-class TimeoutError(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutError()
-
-def with_timeout(seconds, fn, *args, **kwargs):
-    old = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(seconds)
-    try:
-        return fn(*args, **kwargs)
-    except TimeoutError:
-        return None
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old)
+socket.setdefaulttimeout(6)
 
 # ── ID3 tag reading ───────────────────────────────────────────────────────────
 
@@ -97,42 +86,29 @@ def retry_lyrics_for_song(mp3_path: str, lrc_path: str):
     if not query:
         return False, "no query"
 
-    def _search():
+    def _search(synced_only: bool):
         try:
-            return syncedlyrics.search(query, synced_only=True, providers=PREFERRED_PROVIDERS)
+            return syncedlyrics.search(query, synced_only=synced_only, providers=PREFERRED_PROVIDERS)
         except TypeError:
-            return syncedlyrics.search(query, synced_only=True)
+            return syncedlyrics.search(query, synced_only=synced_only)
         except Exception:
             return None
 
-    lyrics = with_timeout(6, _search)
-
-    if lyrics and len(lyrics.strip()) > 10:
+    # Essaie d'abord les paroles synchronisées, puis le texte brut
+    for synced_only in (True, False):
         try:
-            with open(lrc_path, "w", encoding="utf-8") as f:
-                f.write(lyrics)
-            return True, query
+            lyrics = _search(synced_only)
         except Exception as e:
-            return False, f"write error: {e}"
-    else:
-        def _search_plain():
-            try:
-                return syncedlyrics.search(query, synced_only=False, providers=PREFERRED_PROVIDERS)
-            except TypeError:
-                return syncedlyrics.search(query, synced_only=False)
-            except Exception:
-                return None
-
-        lyrics2 = with_timeout(6, _search_plain)
-        if lyrics2 and len(lyrics2.strip()) > 10:
+            return False, f"error: {e}"
+        if lyrics and len(lyrics.strip()) > 10:
             try:
                 with open(lrc_path, "w", encoding="utf-8") as f:
-                    f.write(lyrics2)
+                    f.write(lyrics)
                 return True, query
             except Exception as e:
                 return False, f"write error: {e}"
 
-    return False, f"no synced lyrics found for: {query}"
+    return False, f"no lyrics found for: {query}"
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -181,7 +157,10 @@ def main():
         mp3_path, lrc_path = item
         filename = os.path.splitext(os.path.basename(mp3_path))[0]
 
-        ok, detail = retry_lyrics_for_song(mp3_path, lrc_path)
+        try:
+            ok, detail = retry_lyrics_for_song(mp3_path, lrc_path)
+        except Exception as e:
+            ok, detail = False, f"unexpected error: {e}"
 
         with lock:
             completed_counter += 1

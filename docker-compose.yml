@@ -1,11 +1,12 @@
 version: '3.8'
 
 services:
-  # Backend Go + Python + spotdl
+  # Backend Go + Python + spotdl — serves both the API (:8080) and
+  # the embedded Vite frontend on the same port.
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: soneph-backend
     ports:
       - "8080:8080"
@@ -14,18 +15,6 @@ services:
     environment:
       - DOWNLOAD_DIR=/app/downloads
       - PORT=8080
-    restart: unless-stopped
-
-  # Frontend Dashboard Next.js
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: soneph-frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
     restart: unless-stopped
 
   # Syncthing P2P Auto-Sync Engine
@@ -45,6 +34,3 @@ services:
       - "22000:22000/udp" # Sync Protocol QUIC
       - "21027:21027/udp" # Local Discovery
     restart: unless-stopped
-
-volumes:
-  downloads:

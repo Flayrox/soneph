@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"soneph-backend/pkg/config"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/syncmgr"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,7 @@ import (
 type API struct {
 	downloader  *downloader.Manager
 	scanner     *storage.Scanner
+	importer    *syncmgr.Importer
 	lyricsJobMu sync.Mutex
 	lyricsJob   *lyricsRetryJob
 }
@@ -42,10 +45,11 @@ type DownloadRequest struct {
 	Order   string `json:"order"`
 }
 
-func NewAPI(dl *downloader.Manager, sc *storage.Scanner) *API {
+func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer) *API {
 	return &API{
 		downloader: dl,
 		scanner:    sc,
+		importer:   imp,
 		lyricsJob:  &lyricsRetryJob{Status: "idle"},
 	}
 }
@@ -297,5 +301,47 @@ func (a *API) GetLyricsJobStatus(c *gin.Context) {
 	a.lyricsJobMu.Lock()
 	defer a.lyricsJobMu.Unlock()
 	c.JSON(http.StatusOK, gin.H{"job": a.lyricsJob})
+}
+
+// GetSettings returns the current app settings (download workers/threads).
+func (a *API) GetSettings(c *gin.Context) {
+	c.JSON(http.StatusOK, config.Load())
+}
+
+// SaveSettings persists new app settings.
+func (a *API) SaveSettings(c *gin.Context) {
+	var s config.Settings
+	if err := c.ShouldBindJSON(&s); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "workers et threads (nombres) attendus"})
+		return
+	}
+	if err := config.Save(s); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Réglages enregistrés", "settings": config.Load()})
+}
+
+// GetSyncStatus returns the l'app Musique auto-import status.
+func (a *API) GetSyncStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, a.importer.Status())
+}
+
+// StartSync launches the l'app Musique auto-importer watcher.
+func (a *API) StartSync(c *gin.Context) {
+	if err := a.importer.Start(); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, a.importer.Status())
+}
+
+// StopSync stops the l'app Musique auto-importer watcher.
+func (a *API) StopSync(c *gin.Context) {
+	if err := a.importer.Stop(); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, a.importer.Status())
 }
 

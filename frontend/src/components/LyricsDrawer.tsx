@@ -1,5 +1,3 @@
-"use client";
-
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { X, Music, Play, Pause, RefreshCw, Copy, Check } from "lucide-react";
 import { DownloadedFile } from "./TrackList";
