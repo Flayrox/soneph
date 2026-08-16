@@ -24,7 +24,8 @@ export const examplePlugin: PluginManifest = {
   version: "1.0.0",
   icon: FlaskConical,
   // Not core → the user can enable/disable it from the Marketplace.
-  defaultEnabled: true,
+  // Disabled by default: it's a demo, not something users should see.
+  defaultEnabled: false,
   contributes: {
     views: [
       {

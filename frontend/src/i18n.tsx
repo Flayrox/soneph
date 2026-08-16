@@ -164,6 +164,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "Music folder": "Dossier Musique",
     "Files imported": "Fichiers importés",
     "Watcher script": "Script du watcher",
+    "Change": "Changer",
+    "Library folder changed": "Dossier de la bibliothèque changé",
     Start: "Démarrer",
     Stop: "Arrêter",
     Refresh: "Actualiser",

@@ -2,181 +2,192 @@
 
 # 🎵 Soneph
 
-**Ta bibliothèque Spotify, en MP3 320 kbps — avec métadonnées complètes, paroles synchronisées et import automatique dans l'app Musique.**
+**Your Spotify library, as 320 kbps MP3s — with full metadata, synced lyrics and automatic import into the Apple Music app.**
 
 ![Soneph](Sonephe.png)
 
 </div>
 
-Soneph est une app **macOS native** (Electron) + un **backend Go** qui télécharge tes playlists / albums / singles Spotify en MP3 de haute qualité, range tout proprement (`Artiste/Album/Titre.mp3`), écrit **toutes les métadonnées ID3** (pochette, piste, genre, producteurs, auteurs…), récupère les **paroles synchronisées**, et peut **importer automatiquement** chaque morceau dans l'app Musique d'Apple.
+Soneph is a **native macOS app** (Electron) + a **Go backend** that downloads your Spotify playlists / albums / singles as high-quality MP3s, organizes everything cleanly (`Artist/Album/Title.mp3`), writes **complete ID3 metadata** (cover, track, genre, producers, songwriters…), fetches **synced lyrics**, and can **auto-import** every track into Apple Music.
 
 ---
 
-## ✨ Fonctionnalités
+## ✨ Features
 
-- **Téléchargement Spotify** (spotdl) en **128 / 192 / 320 kbps**, playlists, albums, artistes ou tracks uniques
-- **Métadonnées ID3 complètes** : pochette, album, artiste album, année, genre, piste, disque, auteurs, **producteurs & musiciens** (TIPL/TMCL), ISRC, copyright
-- **Single → Album sans re-téléchargement** : quand tu télécharges l'album d'un single déjà présent, le fichier est *déplacé* vers le bon dossier et ses tags sont réécrits — l'audio n'est jamais re-téléchargé
-- **Paroles synchronisées** (`.lrc` + tags ID3) via lrclib / netease / musixmatch…, avec **source enregistrée dans les tags** (`LYRICS_SOURCE`) pour ne re-télécharger que ce qui peut être amélioré (texte brut → version synchronisée)
-- **Création automatique de playlist** : coller un lien de playlist Spotify télécharge les sons manquants **et** crée la playlist — les morceaux déjà sur disque y sont ajoutés immédiatement, sans re-téléchargement
-- **Stats qui suivent tes fichiers** : historique d'écoutes, likes et playlists sont ré-attachés automatiquement quand un fichier bouge (single → album), quand tu supprimes un doublon, ou quand tu supprimes un fichier dont une autre copie existe
-- **Panneau « Plus de détails »** (clic droit) : qualité réelle, source des paroles, artistes, producteurs, lien Spotify
-- **Auto-import dans l'app Musique** (macOS) : chaque nouveau fichier est copié dans « Automatically Add to Music » avec ses paroles — zéro doublon
-- **Playlists** : création, ajout/retrait, réordonnancement, export `.m3u8`
-- **UI native macOS** : dark mode, glassmorphism, queue de téléchargement en temps réel (WebSocket), bibliothèque, artistes, albums, favoris, top écoutes
+- **Spotify downloads** (spotdl) at **128 / 192 / 320 kbps** — playlists, albums, artists or single tracks
+- **Full ID3 metadata**: cover, album, album artist, year, genre, track, disc, songwriters, **producers & musicians** (TIPL/TMCL), ISRC, copyright
+- **Single → Album without re-downloading**: when you download the album of a track you already have as a single, the file is *moved* to the right folder and its tags rewritten — the audio is never fetched again
+- **Synced lyrics** (`.lrc` + ID3 tags) from lrclib / netease / musixmatch…, with the **source stored in the tags** (`LYRICS_SOURCE`) so only what can actually improve is re-fetched (plain text → synced)
+- **Automatic playlist creation**: pasting a Spotify playlist link downloads the missing tracks **and** creates the playlist — tracks already on disk are added immediately, with zero re-downloads
+- **Stats that follow your files**: play history, likes and playlists are re-attached automatically when a file moves (single → album), when you delete a duplicate, or when you delete a file that has another copy
+- **"More details" panel** (right-click): real bitrate, lyrics source, artists, producers, Spotify link
+- **Auto-import into Apple Music** (macOS): every new file is copied into "Automatically Add to Music" with its lyrics — no duplicates
+- **Playlists**: create, add/remove, reorder, export `.m3u8`
+- **Native macOS UI**: dark mode, glassmorphism, real-time download queue (WebSocket), library, artists, albums, favorites, top played
 
 ---
 
 ## 📥 Installation (macOS)
 
-> L'app cible **macOS (Apple Silicon / Intel)** avec l'app **Musique** installée. Python et `spotdl` sont requis pour le téléchargement (voir [Dépendances](#-dépendances)).
+> The app targets **macOS (Apple Silicon / Intel)** with the **Music** app installed. Python + `spotdl` are required for downloads (see [Dependencies](#-dependencies)).
 
-1. Télécharge le **DMG** depuis la page [Releases](https://github.com/Flayrox/soneph/releases)
-2. Ouvre le DMG et glisse **Soneph** dans *Applications*
-3. Première ouverture : clic droit → *Ouvrir* si Gatekeeper proteste (app non notarisée)
+1. Download the **DMG** from the [Releases](https://github.com/Flayrox/soneph/releases) page
+2. Open the DMG and drag **Soneph** into *Applications*
+3. First launch: right-click → *Open* if Gatekeeper complains (unsigned app)
 
-### Dépendances
+### Dependencies
 
-Le téléchargement repose sur `spotdl` (Python). Installe-le une fois :
+Downloads rely on `spotdl` (Python). Install it once:
 
 ```bash
 brew install python
-pipx install spotdl          # ou : pip install spotdl
+pipx install spotdl          # or: pip install spotdl
 ```
 
-Soneph utilise l'interpréteur Python de `spotdl` lui-même pour ses scripts (tags ID3, paroles) — rien d'autre à installer.
+Soneph uses spotdl's own Python interpreter for its helper scripts (ID3 tags, lyrics) — nothing else to install.
 
 ---
 
-## 🚀 Utilisation rapide
+## 🚀 Quick start
 
-1. **Ouvre Soneph** — ta bibliothèque se trouve dans `~/Music/soneph` (les morceaux déjà présents y apparaissent automatiquement)
-2. **Colle un lien Spotify** dans la barre du haut :
-   - *Playlist* → les sons manquants sont téléchargés **et** la playlist est créée en même temps (les sons déjà là sont ajoutés direct)
-   - *Album / Track / Artiste* → téléchargement simple
-3. **Sync & Réglages → Start** pour activer l'auto-import : chaque morceau arrive dans l'app **Musique** avec ses paroles
-4. Clic droit sur un morceau → **ℹ️ Plus de détails** (qualité, source des paroles, producteurs…), **ajouter à une playlist**, etc.
+1. **Open Soneph** — your library lives in `~/Music/soneph` by default (tracks already present show up automatically; you can **change the folder** from *Sync & Settings*)
+2. **Paste a Spotify link** in the top bar:
+   - *Playlist* → the missing tracks are downloaded **and** the playlist is created at the same time (tracks already on disk are added directly)
+   - *Album / Track / Artist* → plain download
+3. **Sync & Settings → Start** to enable auto-import: every track lands in the **Music** app with its lyrics
+4. Right-click a track → **ℹ️ More details** (bitrate, lyrics source, producers…), add to a playlist, etc.
 
-### Transférer sur iPhone
+### Getting your music on iPhone
 
-- **Câble** : Finder → iPhone → Musique → « Synchroniser la musique » (gratuit)
-- **Sans câble** : « Synchroniser la bibliothèque » (iCloud, nécessite Apple Music / iTunes Match)
+- **Cable**: Finder → iPhone → Music → "Sync music" (free)
+- **Wireless**: "Sync Library" (iCloud, requires Apple Music / iTunes Match)
 
 ---
 
-## 💻 Développement local
+## 💻 Local development
 
-### Prérequis
+### Prerequisites
 
-| Outil | Version |
+| Tool | Version |
 |---|---|
 | Go | 1.22+ |
 | Node.js | 18+ |
-| Python | 3.11+ (`spotdl`, voir ci-dessus) |
-| fswatch (optionnel) | `brew install fswatch` — watcher instantané au lieu du polling |
+| Python | 3.11+ (with `spotdl`, see above) |
+| fswatch (optional) | `brew install fswatch` — instant watcher instead of polling |
 
-### Lancer en dev (backend + frontend)
+### Run in dev (backend + frontend)
 
 ```bash
-make dev        # backend Go sur :8080 + dev server Vite sur :5173
+make dev        # Go backend on :8080 + Vite dev server on :5173
 ```
 
-- API + UI : `http://localhost:8080`
-- Dev server Vite : `http://localhost:5173` (hot reload)
+- API + UI: `http://localhost:8080`
+- Vite dev server: `http://localhost:5173` (hot reload)
 
-### Tester / vérifier
+### Test / check
 
 ```bash
-make test       # tests Go
+make test       # Go tests
 make vet        # go vet
-make build      # frontend embarqué + binaire Go dans backend/bin/
+make build      # embedded frontend + Go binary in backend/bin/
 ```
 
 ---
 
-## 🖥️ Build de l'app macOS
+## 🖥️ Building the macOS app
 
 ```bash
-make desktop    # frontend → Go → icône → .app Electron
+make desktop    # frontend → Go → icon → Electron .app
 ```
 
-Résultat : `desktop/dist/Soneph-darwin-arm64/Soneph.app`. Pour générer le **DMG** d'installation :
+Result: `desktop/dist/Soneph-darwin-arm64/Soneph.app`. To produce the installable **DMG**:
 
 ```bash
 desktop/make-dmg.sh         # → desktop/dist/Soneph-<version>.dmg
 ```
 
+### Notarization (optional, removes the Gatekeeper warning)
+
+Requires an Apple Developer account. See `desktop/notarize.sh`:
+
+```bash
+APPLE_ID=you@example.com APPLE_APP_PASSWORD=xxxx APPLE_TEAM_ID=XXXXXXXXXX \
+  desktop/notarize.sh
+```
+
 ---
 
-## 🐳 Déploiement serveur (Docker)
+## 🐳 Server deployment (Docker)
 
-Soneph fonctionne aussi en **serveur headless** (VPS) : l'UI est embarquée dans le binaire, la distribution vers tes appareils se fait alors via **Syncthing**.
+Soneph also runs as a **headless server** (VPS): the UI is embedded in the binary, and distribution to your devices is handled via **Syncthing**.
 
 ```bash
 docker compose up -d --build
 ```
 
-| Variable | Défaut | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `PORT` | `8080` | Port HTTP |
-| `DOWNLOAD_DIR` | `./downloads` | Dossier de la bibliothèque |
-| `SONEPH_TOKEN` | *(vide)* | Si défini, protège l'API par Bearer token |
-| `SONEPH_ENGINE` | `spotdl` | Binaire du moteur de téléchargement |
-| `SONEPH_THREADS` | `6` | Téléchargements parallèles |
+| `PORT` | `8080` | HTTP port |
+| `DOWNLOAD_DIR` | `./downloads` | Library folder |
+| `SONEPH_TOKEN` | *(empty)* | If set, protects the API with a Bearer token |
+| `SONEPH_ENGINE` | `spotdl` | Download engine binary |
+| `SONEPH_THREADS` | `6` | Parallel downloads |
 
-Docker monte `./downloads` en volume : tes fichiers survivent aux redémarrages et peuvent être partagés avec Syncthing.
+Docker mounts `./downloads` as a volume: your files survive restarts and can be shared via Syncthing.
 
 ---
 
-## 🗂️ Structure du projet
+## 🗂️ Project structure
 
 ```
-├── backend/            # Serveur Go (gin) + scripts Python
+├── backend/            # Go server (gin) + Python helpers
 │   ├── pkg/
-│   │   ├── downloader/ # moteur spotdl (file, stats, métadonnées)
-│   │   ├── handler/    # API REST + WebSocket
-│   │   ├── history/    # écoutes, likes
-│   │   ├── playlists/  # playlists JSON
-│   │   ├── storage/    # scan de la bibliothèque, doublons
-│   │   └── syncmgr/    # watcher d'auto-import Musique
-│   ├── *.py            # helpers : tags ID3, paroles, identité, playlist…
-│   └── web/dist/       # frontend compilé (embarqué dans le binaire)
-├── frontend/           # UI React + Vite + TypeScript
-├── desktop/            # app Electron macOS + scripts de build
+│   │   ├── downloader/ # spotdl engine (queue, stats, metadata)
+│   │   ├── handler/    # REST API + WebSocket
+│   │   ├── history/    # plays, likes
+│   │   ├── playlists/  # JSON playlists
+│   │   ├── storage/    # library scan, duplicates
+│   │   └── syncmgr/    # Apple Music auto-import watcher
+│   ├── *.py            # helpers: ID3 tags, lyrics, identity, playlist…
+│   └── web/dist/       # compiled frontend (embedded in the Go binary)
+├── frontend/           # React + Vite + TypeScript UI
+├── desktop/            # Electron macOS app + build scripts
 ├── scripts/            # dev.sh, watch_and_import.sh…
-└── downloads/          # ta bibliothèque (jamais commitée)
+└── downloads/          # your library (never committed)
 ```
 
-### Scripts Python (backend/)
+### Python helpers (backend/)
 
-| Script | Rôle |
+| Script | Role |
 |---|---|
-| `fast_filter.py` | détecte instantanément les morceaux déjà sur disque |
-| `precreate_dirs.py` | pré-crée les dossiers d'album (single → album) |
-| `tag_soneph.py` | marqueur `TXXX:SONEPH` + source + qualité réelle |
-| `lyrics_retry.py` | paroles synchronisées + source enregistrée |
-| `embed_lyrics.py` | paroles dans les tags ID3 (USLT/SYLT) |
-| `scan_identity.py` | carte URL Spotify (WOAS) → chemins |
-| `playlist_from_url.py` | résolution playlist → morceaux présents/manquants |
-| `file_details.py` | dump complet des métadonnées ID3 |
+| `fast_filter.py` | instantly detects tracks already on disk |
+| `precreate_dirs.py` | pre-creates album folders (single → album) |
+| `tag_soneph.py` | `TXXX:SONEPH` marker + source + real bitrate |
+| `lyrics_retry.py` | synced lyrics + recorded source |
+| `embed_lyrics.py` | lyrics into ID3 tags (USLT/SYLT) |
+| `scan_identity.py` | Spotify URL (WOAS) → paths map |
+| `playlist_from_url.py` | playlist resolution → present/missing tracks |
+| `file_details.py` | full ID3 metadata dump |
 
 ---
 
-## 📦 Release (open source)
+## 📦 Releases
 
-Tout est prêt pour publier sur GitHub :
+Building and publishing a release is automated:
 
 ```bash
-# 1. Versionner
+# 1. Tag the version
 git tag v1.0.0 && git push origin v1.0.0
 
-# 2. Build complet + DMG + Release GitHub (nécessite gh : brew install gh)
+# 2. Full build + DMG + GitHub Release (requires gh: brew install gh)
 ./scripts/release.sh v1.0.0
 ```
 
-`release.sh` fait : build frontend + Go + app Electron, génère le **DMG**, crée la **GitHub Release** avec le DMG en asset (notes générées à partir du changelog). Sans `gh`, il produit juste le DMG — tu le déposes à la main sur la page Release.
+`release.sh` builds the frontend + Go + Electron app, produces the **DMG**, and creates the **GitHub Release** with the DMG attached. Without `gh`, it only produces the DMG — upload it manually on the Release page.
 
-> ⚠️ Le DMG est un asset de Release GitHub, **pas** un fichier du dépôt git (265+ Mo).
+> ⚠️ The DMG is a GitHub **Release asset**, not a git-tracked file (265+ MB).
+
+A GitHub Action (`.github/workflows/release.yml`) can build and attach the DMG automatically on every tag — see the workflow file.
 
 ---
 
@@ -189,10 +200,10 @@ cd frontend && npm run typecheck
 
 ---
 
-## 📜 Licence
+## 📜 License
 
-MIT — voir [LICENSE](LICENSE). *Non affilié à Spotify. Pour un usage personnel de musique dont tu détiens les droits.*
+MIT — see [LICENSE](LICENSE). *Not affiliated with Spotify. For personal use of music you have the rights to.*
 
 ---
 
-*Documentation historique (architecture détaillée de l'ancien backend) : [README_legacy.md](README_legacy.md).*
+*Legacy documentation (detailed old-backend architecture): [README_legacy.md](README_legacy.md).*

@@ -316,7 +316,27 @@ export const SyncSettingsView: React.FC<PluginViewProps> = ({ app }) => {
           <div className="flex items-center gap-2.5 text-apple-subtext">
             <FolderOpen className="w-3.5 h-3.5 shrink-0" />
             <span className="w-36 shrink-0">{t("Watched folder")}</span>
-            <span className="text-zinc-200 truncate">{status?.downloads_dir}</span>
+            <span className="text-zinc-200 truncate" title={status?.downloads_dir}>
+              {status?.downloads_dir}
+            </span>
+            {/* Changer le dossier de la bibliothèque (app desktop) : le
+                sélecteur est fourni par Electron via preload.js. */}
+            {(window as any).soneph?.pickDownloadDir ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const dir = await (window as any).soneph.pickDownloadDir();
+                    if (dir) onNotify("success", t("Library folder changed"), dir);
+                  } catch {
+                    onNotify("error", t("Error"), t("Action failed"));
+                  }
+                }}
+                className="text-[10px] font-semibold text-apple-subtext hover:text-white border border-white/10 hover:border-white/25 px-2 py-0.5 rounded-full transition-colors"
+              >
+                {t("Change")}
+              </button>
+            ) : null}
           </div>
           {status?.auto_add_dir && (
             <div className="flex items-center gap-2.5 text-apple-subtext">

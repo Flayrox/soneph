@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/handler"
@@ -47,6 +48,15 @@ func main() {
 		} else {
 			downloadDir = "./downloads"
 		}
+	}
+
+	// Le dossier peut être un lien symbolique (ex. l'app desktop pointe sur
+	// ~/Music/soneph → downloads/). filepath.Walk ne descend pas dans une
+	// racine qui est un symlink : on résout le chemin réel une fois pour
+	// toute — le scanner, le téléchargeur et les scripts voient tous le
+	// même dossier physique.
+	if resolved, err := filepath.EvalSymlinks(downloadDir); err == nil {
+		downloadDir = resolved
 	}
 
 	distFS, err := fs.Sub(webDist, "web/dist")

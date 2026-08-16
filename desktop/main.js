@@ -11,7 +11,7 @@
 // Dev :  SONEPH_DEV_URL=http://localhost:5173 npm start  → charge le dev
 //        server Vite au lieu de démarrer un serveur embarqué.
 
-const { app, BrowserWindow, Menu, shell, dialog } = require("electron");
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
 const { spawn } = require("child_process");
 const net = require("net");
 const http = require("http");
@@ -21,8 +21,49 @@ const os = require("os");
 
 let serverProc = null;
 let mainWindow = null;
+let currentPort = null;
+let currentUrl = null;
 
 const DEFAULT_PORT_START = 8080;
+
+// ── Dossier de la bibliothèque (choisi par l'utilisateur, persisté) ─────
+function configPath() {
+  return path.join(app.getPath("userData"), "config.json");
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(configPath(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeConfig(patch) {
+  const cfg = { ...readConfig(), ...patch };
+  try {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+  } catch (err) {
+    console.error("[config]", err);
+  }
+}
+
+// Dossier par défaut : ~/Music/soneph (au plus près de l'app Musique pour
+// l'auto-import). Surmonté par SONEPH_DOWNLOAD_DIR, puis par le choix
+// sauvegardé par l'utilisateur dans l'app.
+function defaultDownloadDir() {
+  return path.join(os.homedir(), "Music", "soneph");
+}
+
+function resolveDownloadDir() {
+  return (
+    process.env.DOWNLOAD_DIR ||
+    process.env.SONEPH_DOWNLOAD_DIR ||
+    readConfig().downloadDir ||
+    defaultDownloadDir()
+  );
+}
 
 // ── Binaire du serveur Go ───────────────────────────────────────────────
 function findServerBinary() {
@@ -88,9 +129,9 @@ async function startServer(port) {
     return null;
   }
 
-  // Dossier de musique par défaut : ~/Music/soneph (créé si besoin). En
-  // app packagée le cwd n'est pas fiable, on force toujours DOWNLOAD_DIR.
-  const downloads = process.env.DOWNLOAD_DIR || path.join(os.homedir(), "Music", "soneph");
+  // Dossier de musique : env > choix sauvegardé dans l'app > ~/Music/soneph.
+  // En app packagée le cwd n'est pas fiable, on force toujours DOWNLOAD_DIR.
+  const downloads = resolveDownloadDir();
   fs.mkdirSync(downloads, { recursive: true });
 
   // Serveur local uniquement : on retire tout token hérité de l'environnement.
@@ -141,6 +182,7 @@ function createWindow(url) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
@@ -222,6 +264,30 @@ if (!gotLock) {
     app.setName("Soneph");
     buildMenu();
 
+    // Changer le dossier de la bibliothèque depuis l'UI : sélecteur macOS,
+    // sauvegarde, redémarrage du serveur Go avec le nouveau DOWNLOAD_DIR,
+    // puis rechargement de la fenêtre sur le nouveau dossier.
+    ipcMain.handle("pick-download-dir", async () => {
+      const win = BrowserWindow.getFocusedWindow() || mainWindow;
+      if (!win) return null;
+      const res = await dialog.showOpenDialog(win, {
+        title: "Choisir le dossier de la bibliothèque Soneph",
+        properties: ["openDirectory", "createDirectory"],
+      });
+      const dir = res.canceled || !res.filePaths.length ? null : res.filePaths[0];
+      if (!dir) return null;
+
+      writeConfig({ downloadDir: dir });
+      if (currentPort && currentUrl && serverProc) {
+        stopServer();
+        const restarted = await startServer(currentPort);
+        if (restarted) {
+          mainWindow.loadURL(currentUrl);
+        }
+      }
+      return dir;
+    });
+
     const devUrl = process.env.SONEPH_DEV_URL;
     let url = devUrl;
     if (!devUrl) {
@@ -238,6 +304,8 @@ if (!gotLock) {
       }
       url = `http://127.0.0.1:${port}`;
     }
+    currentPort = devUrl ? null : Number(new URL(url).port);
+    currentUrl = url;
 
     createWindow(url);
 
