@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import LiquidGlass from "liquid-glass-react";
 import {
   Search,
   Music,
@@ -12,10 +13,13 @@ import {
   Check,
   Home as HomeIcon,
   Heart,
+  BarChart3,
+  Puzzle,
 } from "lucide-react";
 import { LyricsRetryPanel } from "./LyricsRetryPanel";
 import type { PlaylistSummary } from "@/types";
 import { useI18n } from "@/i18n";
+import { useModules } from "@/modules";
 
 interface SidebarProps {
   totalFiles: number;
@@ -41,6 +45,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreatePlaylist,
 }) => {
   const { t } = useI18n();
+  const { isEnabled } = useModules();
+  const importEnabled = isEnabled("import");
+  const statsEnabled = isEnabled("stats");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -59,13 +66,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Search Input Bar */}
         <div className="relative px-1 pt-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-apple-subtext" />
-          <input
-            type="text"
-            value={activeFilter}
-            onChange={(e) => onFilterChange(e.target.value)}
-            placeholder={t("Search")}
-            className="w-full bg-[#2a2a2d] border border-white/5 rounded-lg py-1.5 pl-9 pr-3 text-xs text-white placeholder-apple-subtext focus:outline-none focus:border-apple-pink/50 transition-all"
-          />
+          <LiquidGlass cornerRadius={999} padding="0px" blurAmount={0.015} displacementScale={20}>
+            <input
+              type="text"
+              value={activeFilter}
+              onChange={(e) => onFilterChange(e.target.value)}
+              placeholder={t("Search")}
+              className="w-full bg-[#2a2a2d]/60 border border-white/5 rounded-full py-1.5 pl-9 pr-3 text-xs text-white placeholder-apple-subtext focus:outline-none focus:border-apple-pink/50 transition-all"
+            />
+          </LiquidGlass>
         </div>
 
         {/* Music Section */}
@@ -120,6 +129,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>{t("Liked tracks")}</span>
               </div>
             </button>
+            {statsEnabled && (
+              <button
+                onClick={() => onNavChange("stats")}
+                className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md transition-colors ${
+                  activeNav === "stats"
+                    ? "bg-apple-pink text-white font-semibold shadow-sm"
+                    : "text-zinc-300 hover:bg-white/5"
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>{t("Stats")}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -186,32 +208,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Downloads Section */}
-        <div className="space-y-1">
-          <span className="text-[11px] font-semibold text-apple-subtext px-3 uppercase tracking-wider">
-            {t("Downloads")}
-          </span>
-          <button
-            onClick={() => onNavChange("downloads")}
-            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors ${
-              activeNav === "downloads"
-                ? "bg-apple-pink text-white font-semibold shadow-sm"
-                : activeTasksCount > 0
-                ? "bg-apple-pink/15 text-apple-pink font-semibold border border-apple-pink/30 animate-pulse"
-                : "text-zinc-300 hover:bg-white/5"
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <DownloadCloud className={`w-4 h-4 ${activeTasksCount > 0 ? "animate-bounce" : ""}`} />
-              <span>{t("Downloads")}</span>
-            </div>
-            {activeTasksCount > 0 && (
-              <span className="text-[10px] bg-apple-pink text-white font-bold px-2 py-0.5 rounded-full">
-                {activeTasksCount}
-              </span>
-            )}
-          </button>
-        </div>
+        {/* Downloads Section — part of the Import module */}
+        {importEnabled && (
+          <div className="space-y-1">
+            <span className="text-[11px] font-semibold text-apple-subtext px-3 uppercase tracking-wider">
+              {t("Downloads")}
+            </span>
+            <button
+              onClick={() => onNavChange("downloads")}
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md transition-colors ${
+                activeNav === "downloads"
+                  ? "bg-apple-pink text-white font-semibold shadow-sm"
+                  : activeTasksCount > 0
+                  ? "bg-apple-pink/15 text-apple-pink font-semibold border border-apple-pink/30 animate-pulse"
+                  : "text-zinc-300 hover:bg-white/5"
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <DownloadCloud className={`w-4 h-4 ${activeTasksCount > 0 ? "animate-bounce" : ""}`} />
+                <span>{t("Downloads")}</span>
+              </div>
+              {activeTasksCount > 0 && (
+                <span className="text-[10px] bg-apple-pink text-white font-bold px-2 py-0.5 rounded-full">
+                  {activeTasksCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Library Section */}
         <div className="space-y-1">
@@ -250,6 +274,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Settings2 className="w-4 h-4" />
               <span>{t("Sync & Settings")}</span>
             </button>
+            <button
+              onClick={() => onNavChange("marketplace")}
+              className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md transition-colors ${
+                activeNav === "marketplace"
+                  ? "bg-apple-pink text-white font-semibold shadow-sm"
+                  : "text-zinc-300 hover:bg-white/5"
+              }`}
+            >
+              <Puzzle className="w-4 h-4" />
+              <span>{t("Marketplace")}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -265,9 +300,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <FolderCheck className="w-4 h-4 text-apple-pink" />
           <span>{t("Auto-Sync")}</span>
         </div>
-        <span className="text-[10px] bg-apple-pink/20 text-apple-pink px-2 py-0.5 rounded-full font-semibold">
-          <Check className="w-3 h-3 inline" /> {t("Synced")}
-        </span>
+        <LiquidGlass cornerRadius={999} padding="0px" blurAmount={0.015} displacementScale={20}>
+          <span className="flex items-center gap-1 text-[10px] bg-apple-pink/20 text-apple-pink px-2 py-0.5 rounded-full font-semibold">
+            <Check className="w-3 h-3 inline" /> {t("Synced")}
+          </span>
+        </LiquidGlass>
       </div>
 
     </aside>

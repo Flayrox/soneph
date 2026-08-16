@@ -38,7 +38,7 @@ docker compose up -d --build
 
 | Composant | Technologie |
 | :--- | :--- |
-| **Frontend** | Vite + React 18, TypeScript, Tailwind CSS, `liquid-glass-react` (SPA 100 % client, embarquée dans le binaire Go) |
+| **Frontend** | Vite + React 19, TypeScript, Tailwind CSS, `liquid-glass-react` (SPA 100 % client, embarquée dans le binaire Go) |
 | **Backend** | Go (Gin Framework), WebSockets, `go:embed` pour servir le frontend |
 | **Downloader** | Moteur de téléchargement Python 3.11 + FFmpeg |
 | **Sync Engine** | Syncthing P2P |

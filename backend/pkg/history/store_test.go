@@ -15,8 +15,8 @@ func newTestStore(t *testing.T) *Store {
 
 func TestAddAndRecent(t *testing.T) {
 	s := newTestStore(t)
-	s.Add("artist/album/track1.mp3")
-	s.Add("artist/album/track2.mp3")
+	s.Add("artist/album/track1.mp3", 180)
+	s.Add("artist/album/track2.mp3", 200)
 
 	recs := s.Recent(10)
 	if len(recs) != 2 {
@@ -30,8 +30,8 @@ func TestAddAndRecent(t *testing.T) {
 
 func TestBackToBackDuplicateIsUpdated(t *testing.T) {
 	s := newTestStore(t)
-	s.Add("a.mp3")
-	s.Add("a.mp3") // replaying the newest track must not duplicate it
+	s.Add("a.mp3", 100)
+	s.Add("a.mp3", 100) // replaying the newest track must not duplicate it
 
 	recs := s.Recent(10)
 	if len(recs) != 1 {
@@ -42,7 +42,7 @@ func TestBackToBackDuplicateIsUpdated(t *testing.T) {
 func TestRecentLimit(t *testing.T) {
 	s := newTestStore(t)
 	for i := 0; i < 10; i++ {
-		s.Add("track")
+		s.Add("track", 100)
 	}
 	// All the same track -> capped at 1 due to dedupe.
 	if got := len(s.Recent(5)); got != 1 {
@@ -52,9 +52,9 @@ func TestRecentLimit(t *testing.T) {
 
 func TestMostPlayed(t *testing.T) {
 	s := newTestStore(t)
-	s.Add("a.mp3")
-	s.Add("b.mp3")
-	s.Add("a.mp3") // replaying after another track counts as a new play
+	s.Add("a.mp3", 100)
+	s.Add("b.mp3", 100)
+	s.Add("a.mp3", 100) // replaying after another track counts as a new play
 
 	top := s.MostPlayed(10)
 	if len(top) != 2 {
@@ -69,10 +69,46 @@ func TestMaxCap(t *testing.T) {
 	s := newTestStore(t)
 	// Distinct paths so nothing gets deduped.
 	for i := 0; i < DefaultMax+50; i++ {
-		s.Add("track_" + string(rune('a'+i%26)) + "_" + string(rune('0'+i%10)) + ".mp3")
+		s.Add("track_"+string(rune('a'+i%26))+"_"+string(rune('0'+i%10))+".mp3", 100)
 	}
 	if got := len(s.Recent(0)); got > DefaultMax {
 		t.Fatalf("history should be capped at %d, got %d", DefaultMax, got)
+	}
+}
+
+func TestStats(t *testing.T) {
+	s := newTestStore(t)
+	s.Add("ArtA/Album1/Track1.mp3", 180)
+	s.Add("ArtA/Album1/Track2.mp3", 200)
+	s.Add("ArtB/AlbumX/Track3.mp3", 120)
+	s.Add("ArtB/AlbumX/Track1.mp3", 180)
+	s.Add("ArtB/AlbumX/Track1.mp3", 90) // dedupe: same newest track → updated, not added
+
+	st := s.Stats()
+	if st.TotalPlays != 4 {
+		t.Errorf("want 4 plays, got %d", st.TotalPlays)
+	}
+	// 180 + 200 + 120 + (180 replaced by 90) = 590
+	if st.TotalSeconds != 590 {
+		t.Errorf("want 590s, got %d", st.TotalSeconds)
+	}
+	if len(st.TopArtists) != 2 {
+		t.Fatalf("want 2 artists, got %+v", st.TopArtists)
+	}
+	if st.TopArtists[0].Artist != "ArtA" || st.TopArtists[0].Plays != 2 {
+		t.Errorf("want ArtA x2 first, got %+v", st.TopArtists[0])
+	}
+	if len(st.PlaysByDay) != 14 {
+		t.Fatalf("want 14 days of chart, got %d", len(st.PlaysByDay))
+	}
+	// Today's entry should count 4 plays.
+	if st.PlaysByDay[13].Plays != 4 {
+		t.Errorf("want 4 plays today, got %+v", st.PlaysByDay[13])
+	}
+	// All 4 records are distinct plays (the back-to-back dedupe updated the
+	// last one instead of adding); ties break alphabetically by path.
+	if st.TopTracks[0].Path != "ArtA/Album1/Track1.mp3" || st.TopTracks[0].Plays != 1 {
+		t.Errorf("want alphabetical top track, got %+v", st.TopTracks[0])
 	}
 }
 
@@ -117,7 +153,7 @@ func TestPersistenceAcrossInstances(t *testing.T) {
 	t.Setenv("SONEPH_LIKES_FILE", likesFile)
 
 	s1 := New()
-	s1.Add("persist.mp3")
+	s1.Add("persist.mp3", 120)
 	ls1 := NewLikes()
 	_, _ = ls1.Add("persist.mp3")
 

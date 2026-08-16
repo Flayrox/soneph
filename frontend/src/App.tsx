@@ -11,7 +11,11 @@ import { SyncSettingsView } from "@/components/SyncSettingsView";
 import { DownloadsView } from "@/components/DownloadsView";
 import { PlaylistView } from "@/components/PlaylistView";
 import { HomeView } from "@/components/HomeView";
+import { StatsView } from "@/components/StatsView";
+import { MarketplaceView } from "@/components/MarketplaceView";
+import { OnboardingView } from "@/components/OnboardingView";
 import { useI18n } from "@/i18n";
+import { useModules } from "@/modules";
 import { apiFetch, wsUrl } from "@/api";
 import type {
   DownloadedFile,
@@ -32,6 +36,9 @@ const jsonHeaders = { "Content-Type": "application/json" };
 
 export default function App() {
   const { t } = useI18n();
+  const { isEnabled, configured, finishOnboarding } = useModules();
+  const importEnabled = isEnabled("import");
+  const statsEnabled = isEnabled("stats");
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [files, setFiles] = useState<DownloadedFile[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
@@ -457,10 +464,11 @@ export default function App() {
   const scrobble = (path: string) => {
     if (lastScrobbledRef.current === path) return;
     lastScrobbledRef.current = path;
+    const track = files.find((f) => f.rel_path === path);
     apiFetch(`${getApiUrl()}/scrobble`, {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path, duration: Math.round(track?.duration || 0) }),
     })
       .catch(() => {})
       .then(() => fetchHistory());
@@ -527,6 +535,12 @@ export default function App() {
     setActiveNav(nav);
   };
 
+  // If a module gets disabled while its view is open, fall back to the library.
+  useEffect(() => {
+    if (activeNav === "downloads" && !importEnabled) setActiveNav("songs");
+    if (activeNav === "stats" && !statsEnabled) setActiveNav("songs");
+  }, [importEnabled, statsEnabled, activeNav]);
+
   const activeTasksCount = tasks.filter(
     (t) => t.status === "downloading" || t.status === "queued"
   ).length;
@@ -588,7 +602,8 @@ export default function App() {
         <AppHeader
           onDownload={handleDownload}
           isLoading={isSubmitting}
-          activeTasksCount={activeTasksCount}
+          activeTasksCount={importEnabled ? activeTasksCount : 0}
+          importEnabled={importEnabled}
           currentNav={activeNav}
           currentPlaylistName={playlistDetail?.name}
           onOpenQueue={() => setActiveNav("downloads")}
@@ -596,7 +611,9 @@ export default function App() {
 
         {/* Scrollable Main View */}
         <div className="flex-1 overflow-y-auto pb-32">
-          {activeNav === "home" ? (
+          {!configured ? (
+            <OnboardingView onFinish={finishOnboarding} />
+          ) : activeNav === "home" ? (
             <HomeView
               files={files}
               recent={recentResolved}
@@ -625,6 +642,16 @@ export default function App() {
             />
           ) : activeNav === "downloads" ? (
             <DownloadsView tasks={tasks} />
+          ) : activeNav === "stats" ? (
+            <StatsView
+              files={files}
+              likes={likes}
+              onToggleLike={toggleLike}
+              onPlayTrack={handleTrackPlay}
+              getApiUrl={getApiUrl}
+            />
+          ) : activeNav === "marketplace" ? (
+            <MarketplaceView />
           ) : playlistId ? (
             <PlaylistView
               playlist={playlistDetail}

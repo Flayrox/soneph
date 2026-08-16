@@ -23,7 +23,7 @@ interface PlayerProps {
   onPrevTrack: () => void;
   onNextTrack: () => void;
   onOpenLyrics: () => void;
-  audioRef: React.RefObject<HTMLAudioElement>;
+  audioRef: React.RefObject<HTMLAudioElement | null>;
   onTimeUpdate?: (time: number) => void;
   getApiUrl?: () => string;
 }
@@ -99,10 +99,10 @@ export const Player: React.FC<PlayerProps> = ({
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 select-none">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 select-none w-max max-w-[calc(100vw-24px)]">
       {/* Floating liquid glass capsule */}
       <LiquidGlass cornerRadius={16} padding="0px" blurAmount={0.02} displacementScale={30}>
-        <div className="flex items-center gap-6 min-w-[560px] px-5 py-3">
+        <div className="flex items-center gap-6 min-w-[min(560px,calc(100vw-48px))] px-5 py-3">
         {/* Controls */}
         <div className="flex items-center gap-3">
           <button className="text-apple-subtext hover:text-white transition-colors">

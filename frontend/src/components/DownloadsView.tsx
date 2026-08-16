@@ -1,4 +1,5 @@
 import React from "react";
+import LiquidGlass from "liquid-glass-react";
 import { Loader2, CheckCircle2, AlertCircle, Clock, Zap, Music, Disc, DownloadCloud } from "lucide-react";
 import type { DownloadTask } from "@/types";
 import { useI18n } from "@/i18n";
@@ -41,7 +42,8 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({ tasks }) => {
               const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
               const currentSong = task.current_track || t("Processing playlist...");
               return (
-                <div key={task.id} className="bg-[#26262a] border border-apple-pink/30 rounded-xl p-3.5 space-y-3 shadow-lg">
+                <LiquidGlass key={task.id} cornerRadius={14} padding="0px" blurAmount={0.02} displacementScale={20}>
+                <div className="bg-[#26262a]/50 border border-apple-pink/30 rounded-xl p-3.5 space-y-3">
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 rounded-lg bg-apple-pink/20 border border-apple-pink/40 flex items-center justify-center text-apple-pink shrink-0 mt-0.5">
                       <Music className="w-4.5 h-4.5 animate-bounce" />
@@ -63,6 +65,7 @@ export const DownloadsView: React.FC<DownloadsViewProps> = ({ tasks }) => {
                   </div>
                   <p className="text-[11px] text-zinc-400 truncate pt-0.5">{task.progress}</p>
                 </div>
+                </LiquidGlass>
               );
             })}
           </div>

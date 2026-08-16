@@ -104,6 +104,7 @@ func main() {
 		apiGroup.POST("/scrobble", api.Scrobble)
 		apiGroup.GET("/history/recent", api.GetRecentHistory)
 		apiGroup.GET("/history/top", api.GetTopTracks)
+		apiGroup.GET("/stats", api.GetStats)
 		apiGroup.GET("/likes", api.GetLikes)
 		apiGroup.POST("/likes", api.AddLike)
 		apiGroup.DELETE("/likes", api.RemoveLike)

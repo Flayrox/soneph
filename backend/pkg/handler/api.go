@@ -463,7 +463,8 @@ func (a *API) RemovePlaylistTrack(c *gin.Context) {
 // Scrobble records a play event so the Home view can show recent listens.
 func (a *API) Scrobble(c *gin.Context) {
 	var req struct {
-		Path string `json:"path"`
+		Path     string `json:"path"`
+		Duration int    `json:"duration"` // seconds, optional
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Path == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'path' is required."})
@@ -474,8 +475,16 @@ func (a *API) Scrobble(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	a.history.Add(req.Path)
+	if req.Duration < 0 {
+		req.Duration = 0
+	}
+	a.history.Add(req.Path, req.Duration)
 	c.JSON(http.StatusOK, gin.H{"message": "Play recorded"})
+}
+
+// GetStats returns aggregated listening stats for the Stats module.
+func (a *API) GetStats(c *gin.Context) {
+	c.JSON(http.StatusOK, a.history.Stats())
 }
 
 // GetRecentHistory returns the last played tracks, most recent first.

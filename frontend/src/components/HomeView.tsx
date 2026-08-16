@@ -1,4 +1,5 @@
 import React from "react";
+import LiquidGlass from "liquid-glass-react";
 import { Play, Heart, Music, Clock, TrendingUp, Sparkles } from "lucide-react";
 import type { DownloadedFile } from "@/types";
 import { useI18n } from "@/i18n";
@@ -99,16 +100,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
         {/* Stats */}
         <div className="flex flex-wrap gap-3 mt-4">
           {stats.map((s) => (
-            <div
-              key={s.label}
-              className="flex items-center gap-2.5 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5"
-            >
-              <s.icon className="w-4 h-4 text-apple-pink" />
-              <div>
-                <div className="text-base font-bold text-white leading-none">{s.value}</div>
-                <div className="text-[10px] text-apple-subtext mt-0.5">{s.label}</div>
+            <LiquidGlass key={s.label} cornerRadius={14} padding="0px" blurAmount={0.02} displacementScale={20}>
+              <div className="flex items-center gap-2.5 bg-white/5 rounded-xl px-4 py-2.5">
+                <s.icon className="w-4 h-4 text-apple-pink" />
+                <div>
+                  <div className="text-base font-bold text-white leading-none">{s.value}</div>
+                  <div className="text-[10px] text-apple-subtext mt-0.5">{s.label}</div>
+                </div>
               </div>
-            </div>
+            </LiquidGlass>
           ))}
         </div>
       </div>

@@ -235,6 +235,36 @@ const dict: Record<Lang, Record<string, string>> = {
     "Track added to likes": "Morceau ajouté aux favoris",
     "Track removed from likes": "Morceau retiré des favoris",
 
+    // ── Modules & Marketplace ──
+    Marketplace: "Marketplace",
+    Modules: "Modules",
+    "Choose your modules": "Choisis tes modules",
+    "Welcome to soneph": "Bienvenue sur soneph",
+    "Enable the features you want. You can change this anytime in the Marketplace.":
+      "Active les fonctionnalités que tu veux. Tu pourras les changer à tout moment dans la Marketplace.",
+    Continue: "Continuer",
+    Enabled: "Activé",
+    Disabled: "Désactivé",
+    "Import Module": "Module d'import",
+    "Import Module Desc": "Télécharge musique, playlists et discographies d'artistes depuis un lien.",
+    "Stats Module": "Module Stats",
+    "Stats Module Desc": "Statistiques façon Wrapped : temps d'écoute, top artistes, écoutes par jour.",
+    "Listening time": "Temps d'écoute",
+    "Total plays": "Écoutes au total",
+    "Top artists": "Top artistes",
+    "Plays per day": "Écoutes par jour",
+    hours: "heures",
+    minutes: "minutes",
+    "No stats yet": "Pas encore de stats",
+    "Play something to fill in your stats": "Écoute un morceau pour remplir tes stats",
+    "This module is disabled": "Ce module est désactivé",
+    "Re-enable it from the Marketplace": "Réactive-le depuis la Marketplace",
+    "Top artist": "Top artiste",
+    "Changes apply immediately — no restart needed":
+      "Les changements s'appliquent immédiatement — pas besoin de redémarrer",
+    "All modules are optional — the player, library and lyrics stay always on.":
+      "Tous les modules sont optionnels — le lecteur, la bibliothèque et les paroles restent toujours actifs.",
+
     // ── Token API ──
     "API Token (optional)": "Token API (optionnel)",
     "Protect the API with a token. Must match the server SONEPH_TOKEN env var.":
