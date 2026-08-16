@@ -113,7 +113,11 @@ cypress/screenshots/
 # ==========================================
 downloads/
 .syncthing/
-syncthing_config/data/
+
+# Syncthing runtime state — config, certs and the index DB all change on
+# every sync and must never be tracked:
+#   git rm -r --cached syncthing_config
+syncthing_config/
 
 # Built frontend is embedded in the Go binary; only the placeholder is tracked
 !backend/web/dist/

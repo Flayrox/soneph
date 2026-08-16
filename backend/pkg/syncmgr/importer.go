@@ -12,7 +12,7 @@ import (
 	"syscall"
 )
 
-// Status décrit l'état de l'auto-import l'app Musique pour l'UI.
+// Status décrit l'état de l'auto-import pour l'UI.
 type Status struct {
 	Available     bool   `json:"available"`
 	Running       bool   `json:"running"`
@@ -107,7 +107,7 @@ func (m *Importer) Status() Status {
 		LogFile:      m.logFile,
 	}
 	if runtime.GOOS != "darwin" {
-		st.Error = "L'auto-import l'app Musique n'est disponible que sur macOS (l'app Musique doit être installée)."
+		st.Error = "L'auto-import n'est disponible que sur macOS (l'app Musique doit être installée)."
 		return st
 	}
 	if m.scriptPath == "" {
@@ -144,7 +144,7 @@ func (m *Importer) Start() error {
 	defer m.mu.Unlock()
 
 	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("l'auto-import l'app Musique n'est disponible que sur macOS")
+		return fmt.Errorf("l'auto-import n'est disponible que sur macOS")
 	}
 	if m.scriptPath == "" {
 		return fmt.Errorf("scripts/watch_and_import.sh introuvable")

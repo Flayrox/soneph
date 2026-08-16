@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Music2, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { useI18n } from "@/i18n";
+import { apiFetch } from "@/api";
 
 interface LyricsJob {
   status: "idle" | "running" | "done";
@@ -18,6 +20,7 @@ interface MissingScan {
 }
 
 export const LyricsRetryPanel: React.FC = () => {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scan, setScan] = useState<MissingScan | null>(null);
@@ -29,7 +32,7 @@ export const LyricsRetryPanel: React.FC = () => {
     if (!job || job.status !== "running") return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch("/api/lyrics/retry");
+        const res = await apiFetch("/api/lyrics/retry");
         const data = await res.json();
         setJob(data.job);
       } catch {}
@@ -41,7 +44,7 @@ export const LyricsRetryPanel: React.FC = () => {
     setScanning(true);
     setScan(null);
     try {
-      const res = await fetch("/api/lyrics/missing");
+      const res = await apiFetch("/api/lyrics/missing");
       const data = await res.json();
       const scanData = data.scan as { missing_lrc?: number; total_mp3s?: number };
       setScan({
@@ -57,7 +60,7 @@ export const LyricsRetryPanel: React.FC = () => {
 
   const handleRetry = useCallback(async () => {
     try {
-      const res = await fetch("/api/lyrics/retry", { method: "POST" });
+      const res = await apiFetch("/api/lyrics/retry", { method: "POST" });
       const data = await res.json();
       setJob(data.job);
     } catch {}
@@ -79,7 +82,7 @@ export const LyricsRetryPanel: React.FC = () => {
       >
         <div className="flex items-center gap-2">
           <Music2 className="w-3.5 h-3.5 text-apple-pink" />
-          <span className="font-semibold">Synced Lyrics</span>
+          <span className="font-semibold">{t("Synced Lyrics")}</span>
         </div>
         {expanded ? (
           <ChevronUp className="w-3.5 h-3.5 text-zinc-500" />
@@ -94,18 +97,18 @@ export const LyricsRetryPanel: React.FC = () => {
           {scanning && (
             <div className="flex items-center gap-2 text-[11px] text-zinc-400">
               <Loader2 className="w-3 h-3 animate-spin" />
-              Scanning library...
+              {t("Scanning library...")}
             </div>
           )}
 
           {scan && !scanning && (
             <div className="text-[11px] text-zinc-400 space-y-1">
               <div className="flex justify-between">
-                <span>Total songs</span>
+                <span>{t("Total songs")}</span>
                 <span className="text-white font-semibold">{scan.total_mp3s}</span>
               </div>
               <div className="flex justify-between">
-                <span>Without synced lyrics</span>
+                <span>{t("Without synced lyrics")}</span>
                 <span
                   className={
                     scan.missing_lrc > 0
@@ -131,7 +134,7 @@ export const LyricsRetryPanel: React.FC = () => {
                     />
                   </div>
                   <div className="text-[10px] text-zinc-400 flex justify-between">
-                    <span className="truncate max-w-[140px]">{job.current || "Starting…"}</span>
+                    <span className="truncate max-w-[140px]">{job.current || t("Starting…")}</span>
                     <span className="shrink-0 ml-1">{job.done}/{job.total}</span>
                   </div>
                 </>
@@ -141,12 +144,12 @@ export const LyricsRetryPanel: React.FC = () => {
                 <div className="text-[11px] space-y-0.5">
                   <div className="flex items-center gap-1.5 text-emerald-400">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span className="font-semibold">{job.success} lyrics added</span>
+                    <span className="font-semibold">{job.success} {t("lyrics added")}</span>
                   </div>
                   {job.failed > 0 && (
                     <div className="flex items-center gap-1.5 text-zinc-500">
                       <XCircle className="w-3.5 h-3.5" />
-                      <span>{job.failed} not found</span>
+                      <span>{job.failed} {t("not found")}</span>
                     </div>
                   )}
                 </div>
@@ -158,7 +161,7 @@ export const LyricsRetryPanel: React.FC = () => {
                   onClick={() => setShowLogs((s) => !s)}
                   className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
-                  {showLogs ? "Hide" : "Show"} details
+                  {showLogs ? t("Hide") : t("Show")} {t("details")}
                 </button>
               )}
               {showLogs && job.logs && (
@@ -181,7 +184,7 @@ export const LyricsRetryPanel: React.FC = () => {
               className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-white/8 hover:bg-white/12 text-zinc-300 transition-colors disabled:opacity-40"
             >
               <RefreshCw className={`w-3 h-3 ${scanning ? "animate-spin" : ""}`} />
-              Scan
+              {t("Scan")}
             </button>
             <button
               onClick={handleRetry}
@@ -189,7 +192,7 @@ export const LyricsRetryPanel: React.FC = () => {
               className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-apple-pink/20 hover:bg-apple-pink/30 text-apple-pink transition-colors disabled:opacity-40"
             >
               <Music2 className="w-3 h-3" />
-              {job?.status === "running" ? "Running…" : "Retry All"}
+              {job?.status === "running" ? t("Running…") : t("Retry All")}
             </button>
           </div>
         </div>

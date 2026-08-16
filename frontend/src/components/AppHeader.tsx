@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Download, Loader2, Search, SlidersHorizontal, Check } from "lucide-react";
+import { useI18n, LangToggle } from "@/i18n";
 
-interface HeaderProps {
+interface AppHeaderProps {
   onDownload: (url: string, bitrate: string, order: string) => Promise<void>;
   isLoading: boolean;
   activeTasksCount: number;
@@ -9,13 +10,14 @@ interface HeaderProps {
   onOpenQueue?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+export const AppHeader: React.FC<AppHeaderProps> = ({
   onDownload,
   isLoading,
   activeTasksCount,
   currentNav,
   onOpenQueue,
 }) => {
+  const { t } = useI18n();
   const [url, setUrl] = useState("");
   const [bitrate, setBitrate] = useState("320k");
   const [order, setOrder] = useState("reverse");
@@ -43,19 +45,19 @@ export const Header: React.FC<HeaderProps> = ({
   const getNavTitle = () => {
     switch (currentNav) {
       case "recently_added":
-        return "Recently Added";
+        return t("Recently Added");
       case "artists":
-        return "Artists";
+        return t("Artists");
       case "albums":
-        return "Albums";
+        return t("Albums");
       case "pins":
-        return "Pins";
+        return t("Pins");
       case "lyrics":
-        return "Lyrics";
+        return t("Lyrics");
       case "sync":
-        return "Sync & Réglages";
+        return t("Sync & Settings");
       default:
-        return "Songs";
+        return t("Songs");
     }
   };
 
@@ -75,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste  Link..."
+            placeholder={t("Paste Link...")}
             className="w-full bg-[#242428] border border-white/10 focus:border-apple-pink rounded-full py-1.5 pl-10 pr-24 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all shadow-inner"
           />
           <button
@@ -88,9 +90,11 @@ export const Header: React.FC<HeaderProps> = ({
             ) : (
               <Download className="w-3.5 h-3.5" />
             )}
-            <span>Import</span>
+            <span>{t("Import")}</span>
           </button>
         </form>
+
+        <LangToggle />
 
         {/* Clean Apple macOS Options Menu Trigger */}
         <div className="relative" ref={popoverRef}>
@@ -102,7 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
                 ? "bg-apple-pink text-white border-apple-pink shadow-md"
                 : "bg-[#242428] text-apple-subtext hover:text-white border-white/10 hover:border-white/20"
             }`}
-            title="Download Preferences"
+            title={t("Download Preferences")}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
@@ -111,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
           {isSettingsOpen && (
             <div className="absolute right-0 top-10 w-56 bg-[#1e1e22]/95 backdrop-blur-2xl border border-white/10 rounded-xl p-1.5 shadow-2xl z-50 text-xs select-none space-y-1">
               <div className="px-2.5 py-1 text-[10px] font-semibold text-apple-subtext/60 uppercase tracking-wider">
-                Audio Quality
+                {t("Audio Quality")}
               </div>
               <button
                 type="button"
@@ -123,7 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
                   bitrate === "320k" ? "bg-apple-pink text-white" : "text-zinc-200 hover:bg-white/10"
                 }`}
               >
-                <span>320 kbps (High Quality)</span>
+                <span>{t("320 kbps (High Quality)")}</span>
                 {bitrate === "320k" && <Check className="w-3.5 h-3.5" />}
               </button>
               <button
@@ -136,7 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
                   bitrate === "192k" ? "bg-apple-pink text-white" : "text-zinc-200 hover:bg-white/10"
                 }`}
               >
-                <span>192 kbps (Standard)</span>
+                <span>{t("192 kbps (Standard)")}</span>
                 {bitrate === "192k" && <Check className="w-3.5 h-3.5" />}
               </button>
               <button
@@ -149,14 +153,14 @@ export const Header: React.FC<HeaderProps> = ({
                   bitrate === "128k" ? "bg-apple-pink text-white" : "text-zinc-200 hover:bg-white/10"
                 }`}
               >
-                <span>128 kbps (Compact)</span>
+                <span>{t("128 kbps (Compact)")}</span>
                 {bitrate === "128k" && <Check className="w-3.5 h-3.5" />}
               </button>
 
               <div className="my-1 border-t border-white/10" />
 
               <div className="px-2.5 py-1 text-[10px] font-semibold text-apple-subtext/60 uppercase tracking-wider">
-                Import Order
+                {t("Import Order")}
               </div>
               <button
                 type="button"
@@ -168,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
                   order === "reverse" ? "bg-apple-pink text-white" : "text-zinc-200 hover:bg-white/10"
                 }`}
               >
-                <span>Newest Added First</span>
+                <span>{t("Newest Added First")}</span>
                 {order === "reverse" && <Check className="w-3.5 h-3.5" />}
               </button>
               <button
@@ -181,7 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
                   order === "normal" ? "bg-apple-pink text-white" : "text-zinc-200 hover:bg-white/10"
                 }`}
               >
-                <span>Original Playlist Order</span>
+                <span>{t("Original Playlist Order")}</span>
                 {order === "normal" && <Check className="w-3.5 h-3.5" />}
               </button>
             </div>
@@ -195,10 +199,10 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenQueue}
             className="flex items-center gap-2 bg-apple-pink/20 text-apple-pink hover:bg-apple-pink/30 border border-apple-pink/30 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shadow-md"
-            title="Click to view active download queue details"
+            title={t("Click to view active download queue details")}
           >
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span>{activeTasksCount} Syncing...</span>
+            <span>{activeTasksCount} {t("Syncing...")}</span>
           </button>
         )}
       </div>

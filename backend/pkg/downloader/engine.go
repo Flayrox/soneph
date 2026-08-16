@@ -25,6 +25,16 @@ const (
 	StatusFailed      TaskStatus = "failed"
 )
 
+// engineBin is the download engine CLI (a pip-installed binary). The default
+// name is the package's real binary; SONEPH_ENGINE lets you point to a
+// differently-named executable without touching the code.
+var engineBin = func() string {
+	if v := os.Getenv("SONEPH_ENGINE"); v != "" {
+		return v
+	}
+	return "spotdl"
+}()
+
 type DownloadTask struct {
 	ID             string     `json:"id"`
 	URL            string     `json:"url"`
@@ -47,15 +57,30 @@ type Manager struct {
 	queue       chan *DownloadTask
 	downloadDir string
 	broadcastFn func(event string, data interface{})
+	persistPath string
+}
+
+// queuePath returns where in-flight tasks are persisted so a backend restart
+// can re-queue them (same config dir as the app settings).
+func queuePath() string {
+	if p := os.Getenv("SONEPH_QUEUE_FILE"); p != "" {
+		return p
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "soneph", "queue.json")
 }
 
 // GetPythonExec returns the Python interpreter used to run our helper
-// scripts. It prefers the interpreter that spotdl itself uses, because that
-// environment ships with the deps the scripts need (mutagen, syncedlyrics).
-// This keeps local dev (homebrew python) and Docker working identically.
+// scripts. It prefers the interpreter that the download engine uses, because
+// that environment ships with the deps the scripts need (mutagen,
+// syncedlyrics). This keeps local dev (homebrew python) and Docker working
+// identically.
 func GetPythonExec() string {
-	if spotdlPath, err := exec.LookPath("spotdl"); err == nil {
-		if data, err := os.ReadFile(spotdlPath); err == nil {
+	if enginePath, err := exec.LookPath(engineBin); err == nil {
+		if data, err := os.ReadFile(enginePath); err == nil {
 			shebang := strings.TrimPrefix(strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0]), "#!")
 			if fields := strings.Fields(shebang); len(fields) > 0 {
 				prog := fields[0]
@@ -111,6 +136,17 @@ func GetScriptPath(scriptName string) string {
 	return scriptName
 }
 
+// Regexes used to parse the download engine's console output. The engine
+// changes its output format between releases — these are tested
+// (engine_test.go) so a format change is caught by CI instead of silently
+// breaking progress tracking.
+var (
+	reTotal       = regexp.MustCompile(`Found\s+(\d+)\s+songs`)
+	reDownloaded  = regexp.MustCompile(`Downloaded\s+"([^"]+)"`)
+	reSkipping    = regexp.MustCompile(`Skipping\s+([^(]+)`)
+	reDownloading = regexp.MustCompile(`Downloading\s+"([^"]+)"`)
+)
+
 func envInt(name string, def int) int {
 	if v := os.Getenv(name); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -131,14 +167,16 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 		queue:       make(chan *DownloadTask, 100),
 		downloadDir: downloadDir,
 		broadcastFn: broadcastFn,
+		persistPath: queuePath(),
 	}
+	m.recoverQueue()
 
-	// Parallel spotdl processes (one per queued URL). Keep this modest:
+	// Parallel engine processes (one per queued URL). Keep this modest:
 	// each process already downloads several tracks concurrently, and going
-	// too aggressive triggers /YouTube rate limiting which makes
-	// everything slower. Réglable via l'UI (config) ou SPOTDL_WORKERS.
+	// too aggressive triggers platform rate limiting which makes
+	// everything slower. Réglable via l'UI (config) ou SONEPH_WORKERS.
 	cfg := config.Load()
-	workers := envInt("SPOTDL_WORKERS", cfg.Workers)
+	workers := envInt("SONEPH_WORKERS", cfg.Workers)
 	for i := 0; i < workers; i++ {
 		go m.worker()
 	}
@@ -170,7 +208,54 @@ func (m *Manager) AddTask(url string, bitrate string, order string) *DownloadTas
 
 	m.notifyUpdate(task)
 	m.queue <- task
+	m.persist()
 	return task
+}
+
+// persist writes the in-flight tasks (queued + downloading) to disk so a
+// backend restart can re-queue them. Completed/failed tasks are dropped —
+// their files are on disk anyway.
+func (m *Manager) persist() {
+	tasks := m.GetTasks()
+	active := make([]*DownloadTask, 0, len(tasks))
+	for _, t := range tasks {
+		if t.Status == StatusQueued || t.Status == StatusDownloading {
+			active = append(active, t)
+		}
+	}
+	data, err := json.MarshalIndent(active, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(m.persistPath), 0o755)
+	_ = os.WriteFile(m.persistPath, data, 0o644)
+}
+
+// recoverQueue re-queues any tasks left over from a previous run (crashed or
+// stopped backend).
+func (m *Manager) recoverQueue() {
+	data, err := os.ReadFile(m.persistPath)
+	if err != nil {
+		return
+	}
+	var tasks []*DownloadTask
+	if err := json.Unmarshal(data, &tasks); err != nil {
+		return
+	}
+	for _, t := range tasks {
+		if t == nil || t.ID == "" {
+			continue
+		}
+		if t.Status != StatusQueued && t.Status != StatusDownloading {
+			continue
+		}
+		t.Status = StatusQueued
+		t.Error = ""
+		t.Progress = "Re-queued after server restart"
+		t.Logs = append(t.Logs, fmt.Sprintf("[%s] Server restarted — task re-queued.", time.Now().Format("15:04:05")))
+		m.tasks[t.ID] = t
+		m.queue <- t
+	}
 }
 
 func (m *Manager) GetTasks() []*DownloadTask {
@@ -265,6 +350,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 				task.Logs = append(task.Logs, fmt.Sprintf("[%s] All %d tracks present on disk!", time.Now().Format("15:04:05"), ffResult.TotalTracks))
 				m.mu.Unlock()
 				m.notifyUpdate(task)
+				m.persist()
 				return
 			}
 		}
@@ -280,9 +366,9 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// Audio-only download: lyrics are fetched afterwards in a background job
 	// (see fetchLyricsInBackground) so a slow lyrics provider never stalls
 	// the download queue. --threads controls parallel audio downloads;
-	// keep it modest to avoid YouTube/ rate limiting. Réglable via
-	// l'UI (config) ou SPOTDL_THREADS.
-	threads := envInt("SPOTDL_THREADS", config.Load().Threads)
+	// keep it modest to avoid platform rate limiting. Réglable via
+	// l'UI (config) ou SONEPH_THREADS.
+	threads := envInt("SONEPH_THREADS", config.Load().Threads)
 	cmdArgs := []string{
 		"download", task.URL,
 		"--bitrate", task.Bitrate,
@@ -292,7 +378,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--output", outputTemplate,
 	}
 
-	cmd := exec.Command("spotdl", cmdArgs...)
+	cmd := exec.Command(engineBin, cmdArgs...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -302,14 +388,9 @@ func (m *Manager) runTask(task *DownloadTask) {
 	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
-		m.failTask(task, fmt.Sprintf("Failed to start spotdl: %v", err))
+		m.failTask(task, fmt.Sprintf("Failed to start the download engine: %v", err))
 		return
 	}
-
-	reTotal := regexp.MustCompile(`Found\s+(\d+)\s+songs`)
-	reDownloaded := regexp.MustCompile(`Downloaded\s+"([^"]+)"`)
-	reSkipping := regexp.MustCompile(`Skipping\s+([^(]+)`)
-	reDownloading := regexp.MustCompile(`Downloading\s+"([^"]+)"`)
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -361,11 +442,11 @@ func (m *Manager) runTask(task *DownloadTask) {
 		m.mu.RUnlock()
 
 		if !hasSomeProgress {
-			m.failTask(task, fmt.Sprintf("spotdl process exited with error: %v", err))
+			m.failTask(task, fmt.Sprintf("download engine process exited with error: %v", err))
 			return
 		}
 		m.mu.Lock()
-		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Warning: spotdl exited with code %v (some tracks may have failed to download — this is normal)", time.Now().Format("15:04:05"), err))
+		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Warning: download engine exited with code %v (some tracks may have failed to download — this is normal)", time.Now().Format("15:04:05"), err))
 		m.mu.Unlock()
 	}
 
@@ -376,6 +457,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 	m.mu.Unlock()
 
 	m.notifyUpdate(task)
+	m.persist()
 
 	// Lyrics are fetched and embedded in the background so the queue never
 	// stalls on a slow lyrics provider. Progress lands in the task logs and
@@ -480,4 +562,5 @@ func (m *Manager) failTask(task *DownloadTask, errorMsg string) {
 	task.Logs = append(task.Logs, fmt.Sprintf("[%s] ERROR: %s", time.Now().Format("15:04:05"), errorMsg))
 	m.mu.Unlock()
 	m.notifyUpdate(task)
+	m.persist()
 }

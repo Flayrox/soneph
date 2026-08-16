@@ -1,8 +1,8 @@
 version: '3.8'
 
 services:
-  # Backend Go + Python + spotdl — serves both the API (:8080) and
-  # the embedded Vite frontend on the same port.
+  # Backend Go + Python + download engine — serves both the API (:8080)
+  # and the embedded Vite frontend on the same port.
   backend:
     build:
       context: .
@@ -15,6 +15,14 @@ services:
     environment:
       - DOWNLOAD_DIR=/app/downloads
       - PORT=8080
+      # Optional: protect the API with a token (set it in your .env file)
+      - SONEPH_TOKEN=${SONEPH_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
 
   # Syncthing P2P Auto-Sync Engine

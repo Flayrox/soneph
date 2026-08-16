@@ -105,7 +105,11 @@ func (a *API) StreamFile(c *gin.Context) {
 		return
 	}
 
-	fullPath := a.scanner.DownloadDir + "/" + relPath
+	fullPath, err := a.scanner.ResolvePath(relPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.File(fullPath)
 }
 
@@ -116,7 +120,11 @@ func (a *API) GetCover(c *gin.Context) {
 		return
 	}
 
-	fullPath := filepath.Join(a.scanner.DownloadDir, filepath.Clean(relPath))
+	fullPath, err := a.scanner.ResolvePath(relPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if _, err := os.Stat(fullPath); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})
 		return
@@ -151,7 +159,11 @@ func (a *API) GetLyrics(c *gin.Context) {
 		return
 	}
 
-	fullPath := a.scanner.DownloadDir + "/" + relPath
+	fullPath, err := a.scanner.ResolvePath(relPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	// Strip audio extension and append .lrc
 	ext := filepath.Ext(fullPath)
 	lrcPath := strings.TrimSuffix(fullPath, ext) + ".lrc"
@@ -322,12 +334,12 @@ func (a *API) SaveSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Réglages enregistrés", "settings": config.Load()})
 }
 
-// GetSyncStatus returns the l'app Musique auto-import status.
+// GetSyncStatus returns the auto-import status.
 func (a *API) GetSyncStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, a.importer.Status())
 }
 
-// StartSync launches the l'app Musique auto-importer watcher.
+// StartSync launches the auto-importer watcher.
 func (a *API) StartSync(c *gin.Context) {
 	if err := a.importer.Start(); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
@@ -336,7 +348,7 @@ func (a *API) StartSync(c *gin.Context) {
 	c.JSON(http.StatusOK, a.importer.Status())
 }
 
-// StopSync stops the l'app Musique auto-importer watcher.
+// StopSync stops the auto-importer watcher.
 func (a *API) StopSync(c *gin.Context) {
 	if err := a.importer.Stop(); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})

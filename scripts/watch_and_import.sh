@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ====================================================================
-# soneph — l'app Musique Auto-Importer (macOS)
+# soneph — Auto-Importer (macOS)
 # ====================================================================
 # Surveille le dossier de téléchargements (downloads/ du repo, ou le
 # dossier synchronisé par Syncthing) et copie chaque NOUVEAU fichier
@@ -74,7 +74,7 @@ find_auto_add_dir() {
 #     OU il n'a pas été modifié depuis FRESH_GRACE s (cas sans paroles).
 file_ready() {
   local f="$1" lrc mtime now age
-  # Encore ouvert (spotdl / embed / syncthing en train d'écrire) → pas prêt
+  # Encore ouvert (moteur de téléchargement / embed / syncthing) → pas prêt
   if lsof "$f" >/dev/null 2>&1; then
     return 1
   fi
@@ -168,7 +168,7 @@ if command -v fswatch >/dev/null 2>&1; then
   MODE="fswatch"
 fi
 
-echo "🎵 soneph — l'app Musique Auto-Importer"
+echo "🎵 soneph — Auto-Importer"
 echo "   📁 Surveillance : $DOWNLOADS_DIR"
 echo "   🍎 Import vers   : $AUTO_ADD_DIR"
 echo "   👀 Mode         : $MODE"

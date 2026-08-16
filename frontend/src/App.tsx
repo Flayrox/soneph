@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Sidebar } from "@/components/Sidebar";
-import { Header } from "@/components/Header";
+import { AppHeader } from "@/components/AppHeader";
 import { TrackList } from "@/components/TrackList";
 import { Player } from "@/components/Player";
 import { LyricsModal } from "@/components/LyricsModal";
@@ -9,6 +9,8 @@ import { ToastContainer, ToastMessage } from "@/components/Toast";
 import { LyricsDrawer } from "@/components/LyricsDrawer";
 import { LyricsManagerView } from "@/components/LyricsManagerView";
 import { SyncSettingsView } from "@/components/SyncSettingsView";
+import { useI18n } from "@/i18n";
+import { apiFetch, wsUrl } from "@/api";
 import type { DownloadedFile, DownloadTask } from "@/types";
 
 // The frontend is served from the same origin as the Go backend
@@ -18,6 +20,7 @@ const API_URL = "/api";
 const WS_URL = "/api/ws";
 
 export default function App() {
+  const { t } = useI18n();
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const [files, setFiles] = useState<DownloadedFile[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>("");
@@ -54,7 +57,7 @@ export default function App() {
 
   const fetchLyrics = async (relPath: string) => {
     try {
-      const res = await fetch(`${getApiUrl()}/lyrics?path=${encodeURIComponent(relPath)}`);
+      const res = await apiFetch(`${getApiUrl()}/lyrics?path=${encodeURIComponent(relPath)}`);
       if (res.ok) {
         const data = await res.json();
         setLyricsRaw(data.lyrics || null);
@@ -77,7 +80,7 @@ export default function App() {
 
   const fetchTasks = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiUrl()}/tasks`);
+      const res = await apiFetch(`${getApiUrl()}/tasks`);
       if (res.ok) {
         const data = await res.json();
         setTasks(data.tasks || []);
@@ -89,7 +92,7 @@ export default function App() {
 
   const fetchFiles = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiUrl()}/downloads`);
+      const res = await apiFetch(`${getApiUrl()}/downloads`);
       if (res.ok) {
         const data = await res.json();
         setFiles(data.files || []);
@@ -105,7 +108,7 @@ export default function App() {
     fetchFiles();
 
     const connectWS = () => {
-      const ws = new WebSocket(getWsUrl());
+      const ws = new WebSocket(wsUrl(getWsUrl()));
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
@@ -125,14 +128,10 @@ export default function App() {
             });
 
             if (updatedTask.status === "completed") {
-              addToast(
-                "success",
-                "Download Complete",
-                `Audio ready — lyrics syncing in background.`
-              );
+              addToast("success", t("Download Complete"), t("Audio ready — lyrics syncing in background."));
               fetchFiles();
             } else if (updatedTask.status === "failed") {
-              addToast("error", "Import Error", updatedTask.error || "Execution error");
+              addToast("error", t("Import Error"), updatedTask.error || t("Execution error"));
             }
           } else if (msg.event === "downloads_changed") {
             fetchFiles();
@@ -164,26 +163,30 @@ export default function App() {
   const handleDownload = async (url: string, bitrate: string = "320k", order: string = "reverse") => {
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${getApiUrl()}/download`, {
+      const res = await apiFetch(`${getApiUrl()}/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, bitrate, order }),
       });
 
       if (res.ok) {
-        let label = "Track / Playlist Import Started";
+        let label = t("Track / Playlist Import Started");
         if (url.includes("/artist/")) {
-          label = "Artist Discography Import Started";
+          label = t("Artist Discography Import Started");
         }
-        const orderText = order === "reverse" ? "Newest Added First" : "Original Order";
-        addToast("info", label, `Downloading (${bitrate}, ${orderText}) MP3 + Metadata + Clean Lyrics...`);
+        const orderText = order === "reverse" ? t("Newest Added First") : t("Original Order");
+        addToast(
+          "info",
+          label,
+          `${t("Downloading")} (${bitrate}, ${orderText}) ${t("MP3 + Metadata + Clean Lyrics...")}`
+        );
         fetchTasks();
       } else {
         const data = await res.json();
-        addToast("error", "Error", data.error || "Failed to dispatch import");
+        addToast("error", t("Error"), data.error || t("Failed to dispatch import"));
       }
     } catch (err) {
-      addToast("error", "Network Error", "Unable to connect to Go backend");
+      addToast("error", t("Network Error"), t("Unable to connect to Go backend"));
     } finally {
       setIsSubmitting(false);
     }
@@ -191,18 +194,18 @@ export default function App() {
 
   const handleDeleteFile = async (path: string) => {
     try {
-      const res = await fetch(`${getApiUrl()}/downloads?path=${encodeURIComponent(path)}`, {
+      const res = await apiFetch(`${getApiUrl()}/downloads?path=${encodeURIComponent(path)}`, {
         method: "DELETE",
       });
       if (res.ok) {
-        addToast("success", "File Removed", `Removed "${path}" from storage.`);
+        addToast("success", t("File Removed"), t('Removed "{name}" from storage.', { name: path }));
         fetchFiles();
       } else {
         const data = await res.json();
-        addToast("error", "Delete Error", data.error || "Unknown error");
+        addToast("error", t("Delete Error"), data.error || t("Error"));
       }
     } catch (err) {
-      addToast("error", "Network Error", "Action could not be completed");
+      addToast("error", t("Network Error"), t("Action could not be completed"));
     }
   };
 
@@ -306,7 +309,7 @@ export default function App() {
         onPause={() => setIsPlaying(false)}
       />
 
-      {/* l'app Musique macOS Sidebar */}
+      {/* Sidebar */}
       <Sidebar
         totalFiles={files.length}
         syncedCount={syncedCount}
@@ -317,10 +320,10 @@ export default function App() {
         activeTasksCount={activeTasksCount}
       />
 
-      {/* Main l'app Musique Content Panel */}
+      {/* Main Content Panel */}
       <div className="flex-1 h-full flex flex-col overflow-hidden bg-[#161618]">
-        {/* l'app Musique Header */}
-        <Header
+        {/* Header */}
+        <AppHeader
           onDownload={handleDownload}
           isLoading={isSubmitting}
           activeTasksCount={activeTasksCount}
@@ -371,7 +374,7 @@ export default function App() {
         onLyricsUpdated={fetchFiles}
       />
 
-      {/* Floating l'app Musique Player */}
+      {/* Floating Player */}
       <Player
         currentTrack={currentTrack}
         isPlaying={isPlaying}
@@ -384,14 +387,14 @@ export default function App() {
         getApiUrl={getApiUrl}
       />
 
-      {/* l'app Musique Style Active Queue & Download Manager Drawer */}
+      {/* Active Queue & Download Manager Drawer */}
       <QueueDrawer
         isOpen={isQueueOpen}
         onClose={() => setIsQueueOpen(false)}
         tasks={tasks}
       />
 
-      {/* l'app Musique Karaoke Style Synchronized Lyrics Modal */}
+      {/* Karaoke Style Synchronized Lyrics Modal */}
       <LyricsModal
         isOpen={isLyricsOpen}
         onClose={() => setIsLyricsOpen(false)}

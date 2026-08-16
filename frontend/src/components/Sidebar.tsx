@@ -8,7 +8,6 @@ import {
   Disc,
   Music,
   Video,
-  ShoppingBag,
   ListMusic,
   Heart,
   Pin,
@@ -18,6 +17,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { LyricsRetryPanel } from "./LyricsRetryPanel";
+import { useI18n } from "@/i18n";
 
 interface SidebarProps {
   totalFiles: number;
@@ -38,28 +38,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavChange,
   activeTasksCount = 0,
 }) => {
+  const { t } = useI18n();
   const libraryItems = [
-    { id: "songs", label: "Songs", icon: Music, badge: totalFiles },
-    { id: "lyrics", label: "Lyrics", icon: FileText, badge: `${syncedCount}/${totalFiles}` },
-    { id: "recently_added", label: "Recently Added", icon: Clock },
-    { id: "artists", label: "Artists", icon: User },
-    { id: "albums", label: "Albums", icon: Disc },
-    { id: "pins", label: "Pins", icon: Pin },
-    { id: "sync", label: "Sync & Réglages", icon: Settings2 },
+    { id: "songs", label: t("Songs"), icon: Music, badge: totalFiles },
+    { id: "lyrics", label: t("Lyrics"), icon: FileText, badge: `${syncedCount}/${totalFiles}` },
+    { id: "recently_added", label: t("Recently Added"), icon: Clock },
+    { id: "artists", label: t("Artists"), icon: User },
+    { id: "albums", label: t("Albums"), icon: Disc },
+    { id: "pins", label: t("Pins"), icon: Pin },
+    { id: "sync", label: t("Sync & Settings"), icon: Settings2 },
   ];
 
   if (activeTasksCount > 0) {
     libraryItems.unshift({
       id: "downloading",
-      label: "Active Syncs",
+      label: t("Active Syncs"),
       icon: Loader2,
       badge: activeTasksCount,
     });
   }
 
   const playlistItems = [
-    { id: "all_playlists", label: "All Playlists", icon: ListMusic },
-    { id: "favorite_songs", label: "Favorite Songs", icon: Heart },
+    { id: "all_playlists", label: t("All Playlists"), icon: ListMusic },
+    { id: "favorite_songs", label: t("Favorite Songs"), icon: Heart },
   ];
 
   return (
@@ -72,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="text"
             value={activeFilter}
             onChange={(e) => onFilterChange(e.target.value)}
-            placeholder="Search"
+            placeholder={t("Search")}
             className="w-full bg-[#2a2a2d] border border-white/5 rounded-lg py-1.5 pl-9 pr-3 text-xs text-white placeholder-apple-subtext focus:outline-none focus:border-apple-pink/50 transition-all"
           />
         </div>
@@ -88,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <Home className="w-4 h-4" />
-            <span>Home</span>
+            <span>{t("Home")}</span>
           </button>
           <button
             onClick={() => onNavChange("radio")}
@@ -99,14 +100,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <Radio className="w-4 h-4" />
-            <span>Radio</span>
+            <span>{t("Radio")}</span>
           </button>
         </div>
 
         {/* Library Section */}
         <div className="space-y-1">
           <span className="text-[11px] font-semibold text-apple-subtext px-3 uppercase tracking-wider">
-            Library
+            {t("Library")}
           </span>
           <div className="space-y-0.5 text-xs font-medium">
             {libraryItems.map((item) => {
@@ -147,28 +148,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Store Section */}
-        <div className="space-y-1">
-          <span className="text-[11px] font-semibold text-apple-subtext px-3 uppercase tracking-wider">
-            Store
-          </span>
-          <button
-            onClick={() => onNavChange("store")}
-            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-              activeNav === "store"
-                ? "bg-apple-pink text-white font-semibold"
-                : "text-zinc-300 hover:bg-white/5"
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>iTunes Store</span>
-          </button>
-        </div>
-
         {/* Playlists Section */}
         <div className="space-y-1">
           <span className="text-[11px] font-semibold text-apple-subtext px-3 uppercase tracking-wider">
-            Playlists
+            {t("Playlists")}
           </span>
           <div className="space-y-0.5 text-xs font-medium">
             {playlistItems.map((item) => {
@@ -198,14 +181,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <LyricsRetryPanel />
       </div>
 
-      {/* Syncthing P2P iCloud Status Footer */}
+      {/* Syncthing P2P Status Footer */}
       <div className="pt-3 border-t border-white/10 px-2 flex items-center justify-between text-xs text-apple-subtext">
         <div className="flex items-center gap-2">
           <FolderCheck className="w-4 h-4 text-apple-pink" />
-          <span>iCloud Auto-Sync</span>
+          <span>{t("Auto-Sync")}</span>
         </div>
         <span className="text-[10px] bg-apple-pink/20 text-apple-pink px-2 py-0.5 rounded-full font-semibold">
-          Active
+          {t("Synced")}
         </span>
       </div>
     </aside>

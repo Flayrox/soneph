@@ -27,7 +27,7 @@ SONEPH_DOWNLOADS=/chemin/vers/dossier-syncthing ./scripts/watch_and_import.sh
 
 ## 🍏 Méthode 1 : Synchronisation Native macOS Finder (100% Gratuite — Sans Abonnement)
 
-C'est la méthode recommandée sur Mac pour mettre vos musiques directement dans l'application **Musique** native d'iOS sans payer d'abonnement l'app Musique.
+C'est la méthode recommandée sur Mac pour mettre vos musiques directement dans l'application **Musique** native d'iOS sans payer d'abonnement.
 
 1. **Connexion** : Branchez votre iPhone à votre Mac via câble USB (ou activez *"Activer la synchronisation Wi-Fi"* lors du 1er branchement).
 2. **Finder** : Ouvrez le **Finder** sur macOS et cliquez sur votre **iPhone** dans la barre latérale gauche.
@@ -66,9 +66,9 @@ Accédez à votre serveur soneph (en local ou sur votre VPS) depuis le navigateu
 
 ---
 
-## ☁️ Méthode 4 : Synchronisation iCloud l'app Musique (Si abonnement l'app Musique)
+## ☁️ Méthode 4 : Synchronisation iCloud (Si abonnement)
 
-Si vous possédez un abonnement l'app Musique ou iTunes Match :
+Si vous possédez un abonnement payant (bibliothèque iCloud) :
 1. Sur **Mac** : Ouvrez **Musique** > **Réglages** > **Général** > Cochez **Synchroniser la bibliothèque**.
 2. Sur **iPhone** : Ouvrez **Réglages** > **Musique** > Cochez **Synchroniser la bibliothèque**.
 

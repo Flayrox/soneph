@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Patches spotdl's synced lyrics provider to add a hard 6-second timeout.
+Patches the download engine's synced lyrics provider to add a hard
+6-second timeout (so a slow lyrics provider never stalls the queue).
 Without this, Musixmatch rate-limiting hangs the entire asyncio event loop
 and stalls ALL downloads in the queue.
 

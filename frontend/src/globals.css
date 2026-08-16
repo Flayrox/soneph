@@ -17,7 +17,7 @@ body {
   user-select: none;
 }
 
-/* Custom  style scrollbar */
+/* Custom style scrollbar */
 ::-webkit-scrollbar {
   width: 12px;
   height: 12px;

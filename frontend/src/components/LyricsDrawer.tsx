@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { X, Music, Play, Pause, RefreshCw, Copy, Check } from "lucide-react";
-import { DownloadedFile } from "./TrackList";
+import type { DownloadedFile } from "@/types";
+import { useI18n } from "@/i18n";
+import { apiFetch } from "@/api";
 
 interface LyricsDrawerProps {
   isOpen: boolean;
@@ -32,6 +34,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
   getApiUrl,
   onLyricsUpdated,
 }) => {
+  const { t } = useI18n();
   const [lyricsRaw, setLyricsRaw] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
@@ -69,7 +72,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
     let isMounted = true;
     setIsLoading(true);
 
-    fetch(`${getApiUrl()}/lyrics?path=${encodeURIComponent(track.rel_path)}`)
+    apiFetch(`${getApiUrl()}/lyrics?path=${encodeURIComponent(track.rel_path)}`)
       .then((res) => (res.ok ? res.json() : { lyrics: null }))
       .then((data) => {
         if (isMounted) {
@@ -220,11 +223,11 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
     if (!track) return;
     setIsRetrying(true);
     try {
-      const res = await fetch(`${getApiUrl()}/lyrics/retry`, { method: "POST" });
+      const res = await apiFetch(`${getApiUrl()}/lyrics/retry`, { method: "POST" });
       if (res.ok) {
         if (onLyricsUpdated) onLyricsUpdated();
         setTimeout(() => {
-          fetch(`${getApiUrl()}/lyrics?path=${encodeURIComponent(track.rel_path)}`)
+          apiFetch(`${getApiUrl()}/lyrics?path=${encodeURIComponent(track.rel_path)}`)
             .then((r) => (r.ok ? r.json() : null))
             .then((data) => {
               if (data?.lyrics) {
@@ -289,7 +292,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
               : "bg-rose-500/15 text-rose-400 border border-rose-500/20"
           }`}
         >
-          {isSynced ? "Synced (LRC)" : isUnsynced ? "Plain Text" : "Missing"}
+          {isSynced ? t("Synced (LRC)") : isUnsynced ? t("Plain Text") : t("Missing")}
         </span>
 
         {lyricsRaw && (
@@ -298,7 +301,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
             className="flex items-center gap-1 text-[11px] text-apple-subtext hover:text-white px-2 py-0.5 rounded bg-white/5 transition-colors"
           >
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-            <span>{copied ? "Copied" : "Copy"}</span>
+            <span>{copied ? t("Copied") : t("Copy")}</span>
           </button>
         )}
       </div>
@@ -316,18 +319,18 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
         {isLoading ? (
           <div className="h-full flex flex-col items-center justify-center text-apple-subtext space-y-2">
             <RefreshCw className="w-4 h-4 animate-spin text-apple-pink" />
-            <p className="text-xs">Loading lyrics...</p>
+            <p className="text-xs">{t("Loading lyrics...")}</p>
           </div>
         ) : isMissing ? (
           <div className="h-full flex flex-col items-center justify-center text-center space-y-3 py-12">
-            <p className="text-xs font-semibold text-white">No lyrics available</p>
-            <p className="text-[11px] text-apple-subtext">No .lrc file found for this track.</p>
+            <p className="text-xs font-semibold text-white">{t("No lyrics available")}</p>
+            <p className="text-[11px] text-apple-subtext">{t("No .lrc file found for this track.")}</p>
             <button
               onClick={handleRetryLyrics}
               disabled={isRetrying}
               className="px-3 py-1.5 rounded-md bg-apple-pink hover:bg-apple-pinkHover text-white font-semibold text-xs transition-all disabled:opacity-50"
             >
-              {isRetrying ? "Searching..." : "Fetch Lyrics"}
+              {isRetrying ? t("Searching...") : t("Fetch Lyrics")}
             </button>
           </div>
         ) : (
@@ -364,7 +367,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
             onClick={handleResumeSync}
             className="bg-apple-pink text-white text-[11px] font-semibold px-3 py-1.5 rounded-full shadow-lg hover:bg-apple-pinkHover transition-all"
           >
-            <span>Sync to Playback</span>
+            <span>{t("Sync to Playback")}</span>
           </button>
         </div>
       )}
@@ -382,12 +385,12 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
           {isCurrentPlaying && isPlaying ? (
             <>
               <Pause className="w-3.5 h-3.5 fill-white" />
-              <span>Pause</span>
+              <span>{t("Pause")}</span>
             </>
           ) : (
             <>
               <Play className="w-3.5 h-3.5 fill-white ml-0.5" />
-              <span>Play</span>
+              <span>{t("Play")}</span>
             </>
           )}
         </button>
@@ -399,7 +402,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
             className="flex items-center gap-1 py-1.5 px-3 rounded-md bg-[#242428] hover:bg-white/10 text-white text-xs font-semibold border border-white/10 transition-all disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 text-apple-pink ${isRetrying ? "animate-spin" : ""}`} />
-            <span>{isRetrying ? "Retrying..." : "Upgrade"}</span>
+            <span>{isRetrying ? t("Retrying...") : t("Upgrade")}</span>
           </button>
         )}
       </div>

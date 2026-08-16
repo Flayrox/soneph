@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Fast pre-filter: paginate  embed API to get ALL tracks,
-then compare against local disk files to instantly skip already-downloaded songs.
+Fast pre-filter: paginate the embed API to get ALL tracks of a playlist,
+album or track URL, then compare against local disk files to instantly skip
+already-downloaded songs.
 """
 import os
 import sys
@@ -10,6 +11,7 @@ import re
 import json
 import time
 import urllib.request
+from urllib.parse import urlparse
 
 def normalize(text):
     """Normalize text for fuzzy duplicate matching."""
@@ -44,7 +46,7 @@ def fetch_page(url, retries=3):
     return None
 
 def parse_tracklist_from_html(html):
-    """Extract track list from  embed HTML."""
+    """Extract track list from the embed page HTML."""
     m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.DOTALL)
     if not m:
         return []
@@ -75,21 +77,40 @@ def parse_tracklist_from_html(html):
         sys.stderr.write(f"JSON parse error: {e}\n")
         return []
 
-def fetch_all__tracks(_url):
+def embed_base_url(media_url):
     """
-    Paginate through  embed API to get ALL tracks.
-     embed returns 100 tracks per page.
+    Build the embed endpoint from the pasted link itself, so the code never
+    hardcodes a provider domain. Returns None if no usable host is found.
+    """
+    candidate = media_url if '://' in media_url else 'https://' + media_url
+    parsed = urlparse(candidate)
+    host = parsed.netloc
+    if not host:
+        return None
+    if not host.startswith('open.'):
+        host = 'open.' + host
+    return f'https://{host}/embed'
+
+
+def fetch_all_tracks(media_url):
+    """
+    Paginate through the embed API to get ALL tracks of a playlist/album.
+    The embed page returns 100 tracks per page.
     We keep paginating until we get fewer than 100 (or an empty page).
     """
-    match = re.search(r'(playlist|album|track)/([a-zA-Z0-9]+)', _url)
+    match = re.search(r'(playlist|album|track)/([a-zA-Z0-9]+)', media_url)
     if not match:
+        return []
+
+    base = embed_base_url(media_url)
+    if not base:
         return []
 
     media_type, media_id = match.group(1), match.group(2)
 
     # For single tracks, no pagination needed
     if media_type == 'track':
-        url = f"https://open..com/embed/{media_type}/{media_id}"
+        url = f'{base}/{media_type}/{media_id}'
         html = fetch_page(url)
         if html:
             return parse_tracklist_from_html(html)
@@ -102,7 +123,7 @@ def fetch_all__tracks(_url):
     MAX_PAGES = 20  # Safety cap at 2000 tracks
 
     while len(all_tracks) // PAGE_SIZE < MAX_PAGES:
-        url = f"https://open..com/embed/{media_type}/{media_id}?offset={offset}"
+        url = f'{base}/{media_type}/{media_id}?offset={offset}'
         sys.stderr.write(f"Fetching embed page offset={offset}...\n")
         html = fetch_page(url)
         if not html:
@@ -122,7 +143,7 @@ def fetch_all__tracks(_url):
             break
 
         offset += PAGE_SIZE
-        # Small delay to be polite to  servers
+        # Small delay to be polite to the embed API servers
         time.sleep(0.1)
 
     return all_tracks
@@ -130,12 +151,12 @@ def fetch_all__tracks(_url):
 
 def main():
     download_dir = sys.argv[1] if len(sys.argv) > 1 else "./downloads"
-    _url = sys.argv[2] if len(sys.argv) > 2 else ""
+    media_url = sys.argv[2] if len(sys.argv) > 2 else ""
 
     existing = get_existing_filenames(download_dir)
     sys.stderr.write(f"Found {len(existing)} existing normalized filenames on disk.\n")
 
-    tracks = fetch_all__tracks(_url)
+    tracks = fetch_all_tracks(media_url)
 
     if not tracks:
         print(json.dumps({
@@ -144,7 +165,7 @@ def main():
         }))
         return
 
-    sys.stderr.write(f"Total tracks from : {len(tracks)}\n")
+    sys.stderr.write(f"Total tracks extracted: {len(tracks)}\n")
 
     skipped = []
     missing = []

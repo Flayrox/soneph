@@ -1,13 +1,14 @@
 -- ====================================================================
--- soneph : AppleScript Folder Action (macOS -> l'app Musique)
+-- soneph : AppleScript Folder Action (macOS -> Musique)
 -- ====================================================================
+-- ⚠️ Déprécié : préfère scripts/watch_and_import.sh (sans doublons).
 -- Ce script surveille le dossier local synchronisé par Syncthing.
 -- Dès qu'un fichier MP3 y est déposé par le VPS:
 -- 1. Il l'ajoute dans l'app Musique.
 -- 2. Il lit le fichier .lrc, nettoie les horodatages [00:xx.xx]
---    et injecte les paroles propres dans l'app Musique.
--- 3. Avec iCloud Music Library, le morceau et ses paroles sont instantanément
---    disponibles sur Mac et iPhone !
+--    et injecte les paroles propres dans Musique.
+-- 3. Avec la bibliothèque iCloud, le morceau et ses paroles sont
+--    instantanément disponibles sur Mac et iPhone !
 -- ====================================================================
 
 on adding folder items to this_folder after receiving added_items
@@ -35,7 +36,7 @@ on adding folder items to this_folder after receiving added_items
 						end try
 					end try
 					
-					-- Nettoyer les balises [00:xx.xx] pour l'app Musique
+					-- Nettoyer les balises [00:xx.xx] pour Musique
 					if lrc_content is not "" then
 						set clean_lyrics to ""
 						set AppleScript's text item delimiters to linefeed
@@ -56,7 +57,7 @@ on adding folder items to this_folder after receiving added_items
 						set lrc_content to clean_lyrics
 					end if
 					
-					-- Importer dans l'app Musique et définir les paroles
+					-- Importer dans Musique et définir les paroles
 					tell application "Music"
 						set new_tracks to (add this_item)
 						if (count of new_tracks) > 0 and lrc_content is not "" then

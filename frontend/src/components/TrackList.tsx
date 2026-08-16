@@ -1,6 +1,7 @@
 import React from "react";
-import { Play, Pause, Trash2, CheckCircle2, Music, Clock, Sparkles, FileText, AlertCircle } from "lucide-react";
+import { Play, Pause, Trash2, Music, Clock } from "lucide-react";
 import type { DownloadedFile, DownloadTask } from "@/types";
+import { useI18n } from "@/i18n";
 
 // Ré-export pour compatibilité avec les imports existants
 export type { DownloadedFile, DownloadTask };
@@ -26,6 +27,8 @@ export const TrackList: React.FC<TrackListProps> = ({
   onDelete,
   getApiUrl,
 }) => {
+  const { t } = useI18n();
+
   const formatDuration = (seconds?: number) => {
     if (!seconds || isNaN(seconds)) return "3:30";
     const mins = Math.floor(seconds / 60);
@@ -40,10 +43,10 @@ export const TrackList: React.FC<TrackListProps> = ({
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / (1000 * 60));
 
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffMins < 1) return t("Just now");
+    if (diffMins < 60) return `${diffMins}${t("m ago")}`;
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffHours < 24) return `${diffHours}${t("h ago")}`;
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
@@ -58,11 +61,11 @@ export const TrackList: React.FC<TrackListProps> = ({
         <thead>
           <tr className="border-b border-white/10 text-apple-subtext font-semibold uppercase text-[10px] tracking-wider">
             <th className="py-2.5 px-4 w-12 text-center">#</th>
-            <th className="py-2.5 px-4">Title</th>
-            <th className="py-2.5 px-4 hidden md:table-cell">Album</th>
-            <th className="py-2.5 px-4 hidden sm:table-cell">Added</th>
-            <th className="py-2.5 px-4 text-center w-28">Lyrics Sync</th>
-            <th className="py-2.5 px-4 text-right w-16">Time</th>
+            <th className="py-2.5 px-4">{t("Title")}</th>
+            <th className="py-2.5 px-4 hidden md:table-cell">{t("Album")}</th>
+            <th className="py-2.5 px-4 hidden sm:table-cell">{t("Added")}</th>
+            <th className="py-2.5 px-4 text-center w-28">{t("Lyrics Sync")}</th>
+            <th className="py-2.5 px-4 text-right w-16">{t("Time")}</th>
             <th className="py-2.5 px-4 text-right w-12"></th>
           </tr>
         </thead>
@@ -103,26 +106,26 @@ export const TrackList: React.FC<TrackListProps> = ({
                         )}
                       </p>
                       <p className="text-[11px] text-apple-pink font-medium truncate">
-                        {task.status === "queued" ? "Queued in download engine..." : task.progress}
+                        {task.status === "queued" ? t("Queued in download engine...") : task.progress}
                       </p>
                     </div>
                   </div>
                 </td>
 
                 <td className="py-3 px-4 text-apple-subtext hidden md:table-cell truncate">
-                  {task.order === "reverse" ? "Newest Added First" : "Import Queue"}
+                  {task.order === "reverse" ? t("Newest Added First") : t("Import Queue")}
                 </td>
 
                 <td className="py-3 px-4 text-apple-subtext hidden sm:table-cell">
                   <div className="flex items-center gap-1 text-[11px] text-apple-pink">
                     <Clock className="w-3 h-3" />
-                    <span>Syncing now</span>
+                    <span>{t("Syncing now")}</span>
                   </div>
                 </td>
 
                 <td className="py-3 px-4 text-center">
                   <span className="text-[10px] font-bold text-apple-pink bg-apple-pink/20 px-2 py-0.5 rounded-full border border-apple-pink/30">
-                    Downloading
+                    {t("Downloading")}
                   </span>
                 </td>
 
@@ -216,7 +219,7 @@ export const TrackList: React.FC<TrackListProps> = ({
 
                 {/* Album */}
                 <td className="py-2.5 px-4 text-apple-subtext hidden md:table-cell truncate max-w-[180px] font-normal">
-                  {file.album || "Single"}
+                  {file.album || t("Single")}
                 </td>
 
                 {/* Date Added */}
@@ -228,24 +231,24 @@ export const TrackList: React.FC<TrackListProps> = ({
                 <td className="py-2.5 px-4 text-center">
                   {isSynced ? (
                     <span
-                      title="Time-Synced Karaoke LRC lyrics"
+                      title={t("Time-Synced Karaoke LRC lyrics")}
                       className="inline-block text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded"
                     >
-                      Synced
+                      {t("Synced")}
                     </span>
                   ) : isUnsynced ? (
                     <span
-                      title="Plain text unsynced lyrics"
+                      title={t("Plain text unsynced lyrics")}
                       className="inline-block text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded"
                     >
-                      Text
+                      {t("Text")}
                     </span>
                   ) : (
                     <span
-                      title="No lyrics downloaded yet"
+                      title={t("No lyrics downloaded yet")}
                       className="inline-block text-[10px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded"
                     >
-                      Missing
+                      {t("Missing")}
                     </span>
                   )}
                 </td>
@@ -263,7 +266,7 @@ export const TrackList: React.FC<TrackListProps> = ({
                       onDelete(file.rel_path);
                     }}
                     className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Delete track"
+                    title={t("Delete track")}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -276,9 +279,9 @@ export const TrackList: React.FC<TrackListProps> = ({
             <tr>
               <td colSpan={7} className="text-center py-20 text-apple-subtext">
                 <Music className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm font-semibold text-zinc-400">No tracks imported yet</p>
+                <p className="text-sm font-semibold text-zinc-400">{t("No tracks imported yet")}</p>
                 <p className="text-xs text-zinc-500 mt-1">
-                  Paste a  playlist or track URL above to start syncing
+                  {t("Paste a playlist or track URL above to start syncing")}
                 </p>
               </td>
             </tr>

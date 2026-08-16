@@ -1,16 +1,7 @@
 import React, { useState } from "react";
-import {
-  Search,
-  Music,
-  Play,
-  Pause,
-  RefreshCw,
-  Sparkles,
-  FileText,
-  AlertCircle,
-  CheckCircle2,
-} from "lucide-react";
-import { DownloadedFile } from "./TrackList";
+import { Search, Music, Play, Pause, RefreshCw, FileText } from "lucide-react";
+import type { DownloadedFile } from "@/types";
+import { useI18n } from "@/i18n";
 
 interface LyricsManagerViewProps {
   files: DownloadedFile[];
@@ -31,6 +22,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
   getApiUrl,
   onRefreshFiles,
 }) => {
+  const { t } = useI18n();
   const [filterType, setFilterType] = useState<"all" | "synced" | "unsynced" | "missing">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isUpgrading, setIsUpgrading] = useState<boolean>(false);
@@ -75,9 +67,9 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
 
   return (
     <div className="w-full text-zinc-200 select-none font-sans">
-      {/* l'app Musique Sub-Header Controls */}
+      {/* Sub-Header Controls */}
       <div className="px-6 py-4 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#161618]">
-        {/* l'app Musique Segmented Filter Pills */}
+        {/* Segmented Filter Pills */}
         <div className="flex items-center gap-1 bg-[#242428] p-1 rounded-lg border border-white/5 text-xs font-medium">
           <button
             onClick={() => setFilterType("all")}
@@ -87,7 +79,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
                 : "text-apple-subtext hover:text-white"
             }`}
           >
-            All ({totalCount})
+            {t("All")} ({totalCount})
           </button>
           <button
             onClick={() => setFilterType("synced")}
@@ -97,7 +89,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
                 : "text-apple-subtext hover:text-white"
             }`}
           >
-            Synced ({syncedCount})
+            {t("Synced")} ({syncedCount})
           </button>
           <button
             onClick={() => setFilterType("unsynced")}
@@ -107,7 +99,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
                 : "text-apple-subtext hover:text-white"
             }`}
           >
-            Plain ({unsyncedCount})
+            {t("Plain")} ({unsyncedCount})
           </button>
           <button
             onClick={() => setFilterType("missing")}
@@ -117,7 +109,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
                 : "text-apple-subtext hover:text-white"
             }`}
           >
-            Missing ({missingCount})
+            {t("Missing")} ({missingCount})
           </button>
         </div>
 
@@ -129,7 +121,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search..."
+              placeholder={t("Search...")}
               className="w-full bg-[#242428] border border-white/10 focus:border-apple-pink rounded-lg py-1.5 pl-8 pr-3 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all"
             />
           </div>
@@ -140,19 +132,19 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-apple-pink hover:bg-apple-pinkHover text-white font-semibold text-xs transition-all shadow-md disabled:opacity-50 shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isUpgrading ? "animate-spin" : ""}`} />
-            <span>{isUpgrading ? "Upgrading..." : "Sync Lyrics"}</span>
+            <span>{isUpgrading ? t("Upgrading...") : t("Sync Lyrics")}</span>
           </button>
         </div>
       </div>
 
-      {/* l'app Musique Native Table */}
+      {/* Track Table */}
       <table className="w-full text-left border-collapse text-xs">
         <thead>
           <tr className="border-b border-white/10 text-apple-subtext font-semibold uppercase text-[10px] tracking-wider">
             <th className="py-2.5 px-4 w-12 text-center">#</th>
-            <th className="py-2.5 px-4">Title</th>
-            <th className="py-2.5 px-4 hidden md:table-cell">Album</th>
-            <th className="py-2.5 px-4 text-center w-32">Status</th>
+            <th className="py-2.5 px-4">{t("Title")}</th>
+            <th className="py-2.5 px-4 hidden md:table-cell">{t("Album")}</th>
+            <th className="py-2.5 px-4 text-center w-32">{t("Status")}</th>
             <th className="py-2.5 px-4 text-right w-24"></th>
           </tr>
         </thead>
@@ -230,22 +222,22 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
 
                 {/* Album */}
                 <td className="py-2.5 px-4 text-apple-subtext hidden md:table-cell truncate max-w-[180px] font-normal">
-                  {file.album || "Single"}
+                  {file.album || t("Single")}
                 </td>
 
                 {/* Status Badge */}
                 <td className="py-2.5 px-4 text-center">
                   {isSynced ? (
                     <span className="inline-block text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded">
-                      Synced
+                      {t("Synced")}
                     </span>
                   ) : isUnsynced ? (
                     <span className="inline-block text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded">
-                      Plain Text
+                      {t("Plain Text")}
                     </span>
                   ) : (
                     <span className="inline-block text-[10px] font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-0.5 rounded">
-                      Missing
+                      {t("Missing")}
                     </span>
                   )}
                 </td>
@@ -259,7 +251,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
                     }}
                     className="text-[11px] text-apple-subtext hover:text-white font-medium transition-colors"
                   >
-                    View Lyrics →
+                    {t("View Lyrics →")}
                   </button>
                 </td>
               </tr>
@@ -270,7 +262,7 @@ export const LyricsManagerView: React.FC<LyricsManagerViewProps> = ({
             <tr>
               <td colSpan={5} className="text-center py-20 text-apple-subtext">
                 <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p className="text-xs font-semibold text-zinc-400">No tracks match filter</p>
+                <p className="text-xs font-semibold text-zinc-400">{t("No tracks match filter")}</p>
               </td>
             </tr>
           )}

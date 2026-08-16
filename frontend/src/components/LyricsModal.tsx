@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { X, Disc, Music2 } from "lucide-react";
-import { DownloadedFile } from "./TrackList";
+import type { DownloadedFile } from "@/types";
+import { useI18n } from "@/i18n";
 
 interface LyricsModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   currentTime,
   lyricsRaw,
 }) => {
+  const { t } = useI18n();
   const [parsedLines, setParsedLines] = useState<LyricLine[]>([]);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
 
@@ -79,12 +81,12 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       {/* Top Controls */}
       <div className="flex items-center justify-between border-b border-white/10 pb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded bg--elevated flex items-center justify-center text--subtext">
+          <div className="w-10 h-10 rounded bg-[#28282c] flex items-center justify-center text-apple-subtext">
             <Disc className="w-6 h-6" />
           </div>
           <div>
             <h3 className="text-base font-bold text-white truncate max-w-sm">{currentTrack.title}</h3>
-            <p className="text-xs text--subtext">{currentTrack.artist} • Synced Lyrics</p>
+            <p className="text-xs text-apple-subtext">{currentTrack.artist} • {t("Synced Lyrics")}</p>
           </div>
         </div>
 
@@ -99,10 +101,10 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       {/* Main Synchronized Lyrics Stream */}
       <div className="flex-1 overflow-y-auto my-8 px-4 sm:px-16 scrollbar-none flex flex-col items-start justify-start space-y-6">
         {parsedLines.length === 0 ? (
-          <div className="m-auto text-center text--subtext">
+          <div className="m-auto text-center text-apple-subtext">
             <Music2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="text-base font-semibold text-white">No Synced Lyrics File Available</p>
-            <p className="text-xs mt-1">This song was downloaded without a .LRC synced lyrics file.</p>
+            <p className="text-base font-semibold text-white">{t("No Synced Lyrics File Available")}</p>
+            <p className="text-xs mt-1">{t("This song was downloaded without a .LRC synced lyrics file.")}</p>
           </div>
         ) : (
           parsedLines.map((line, idx) => {
@@ -115,7 +117,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 ref={isActive ? activeLineRef : null}
                 className={`text-2xl sm:text-4xl md:text-5xl font-black transition-all duration-300 transform origin-left cursor-pointer ${
                   isActive
-                    ? "text--green scale-105 drop-shadow-[0_0_15px_rgba(29,185,84,0.4)] opacity-100"
+                    ? "text-emerald-400 scale-105 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)] opacity-100"
                     : isPast
                     ? "text-white/40 scale-100"
                     : "text-white/20 scale-100"
@@ -129,8 +131,8 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       </div>
 
       {/* Footer hint */}
-      <div className="text-center text-xs text--subtext border-t border-white/10 pt-4">
-        <span>Press ESC or click close to return to your library</span>
+      <div className="text-center text-xs text-apple-subtext border-t border-white/10 pt-4">
+        <span>{t("Press ESC or click close to return to your library")}</span>
       </div>
     </div>
   );

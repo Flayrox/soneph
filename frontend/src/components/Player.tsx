@@ -12,7 +12,8 @@ import {
   ListMusic,
   Disc,
 } from "lucide-react";
-import { DownloadedFile } from "./TrackList";
+import type { DownloadedFile } from "@/types";
+import { useI18n } from "@/i18n";
 
 interface PlayerProps {
   currentTrack: DownloadedFile | null;
@@ -37,6 +38,7 @@ export const Player: React.FC<PlayerProps> = ({
   onTimeUpdate,
   getApiUrl,
 }) => {
+  const { t } = useI18n();
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
@@ -97,7 +99,7 @@ export const Player: React.FC<PlayerProps> = ({
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 select-none">
-      {/* l'app Musique Floating Liquid Glass Capsule */}
+      {/* Floating liquid glass capsule */}
       <div className="bg-[#2a2a2e]/85 backdrop-blur-3xl border border-white/15 rounded-2xl px-5 py-3 shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex items-center gap-6 min-w-[560px]">
         {/* Controls */}
         <div className="flex items-center gap-3">
@@ -158,7 +160,7 @@ export const Player: React.FC<PlayerProps> = ({
           <button
             onClick={onOpenLyrics}
             className="text-apple-pink hover:scale-110 transition-transform"
-            title="l'app Musique Lyrics"
+            title={t("Lyrics")}
           >
             <MessageSquareQuote className="w-5 h-5 fill-apple-pink/20" />
           </button>

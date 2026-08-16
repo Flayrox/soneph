@@ -3,9 +3,10 @@ package main
 import (
 	"embed"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/handler"
 	"soneph-backend/pkg/storage"
@@ -26,6 +27,13 @@ import (
 var webDist embed.FS
 
 func main() {
+	// Structured logs. Default = text; LOG_FORMAT=json for machines.
+	if os.Getenv("LOG_FORMAT") == "json" {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	} else {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	}
+
 	downloadDir := os.Getenv("DOWNLOAD_DIR")
 	if downloadDir == "" {
 		if _, err := os.Stat("/app/downloads"); err == nil {
@@ -41,7 +49,8 @@ func main() {
 
 	distFS, err := fs.Sub(webDist, "web/dist")
 	if err != nil {
-		log.Fatalf("Failed to load embedded frontend: %v", err)
+		slog.Error("failed to load embedded frontend", "err", err)
+		os.Exit(1)
 	}
 
 	wsHub := handler.NewWSHub()
@@ -53,18 +62,21 @@ func main() {
 
 	r := gin.Default()
 
-	// Configure CORS for development (Vite dev server on :5173)
+	// Configure CORS for development (Vite dev server on :5173). Auth uses a
+	// Bearer token header, not cookies, so credentials stay disabled.
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		AllowOrigins:  []string{"*"},
+		AllowMethods:  []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Auth-Token"},
+		ExposeHeaders: []string{"Content-Length"},
+		MaxAge:        12 * time.Hour,
 	}))
 
-	// API Routes
+	// API Routes — protected by an optional token (SONEPH_TOKEN) and a
+	// per-IP rate limit. The WebSocket handshake lives here too, so it
+	// inherits the same checks (token via ?token= query param).
 	apiGroup := r.Group("/api")
+	apiGroup.Use(auth.RequireToken(), auth.RateLimit(120, time.Minute))
 	{
 		apiGroup.POST("/download", api.CreateDownload)
 		apiGroup.GET("/tasks", api.GetTasks)
@@ -108,8 +120,9 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("🚀 soneph Backend running on port :%s (API + Web UI)", port)
+	slog.Info("backend started", "port", port, "downloads", downloadDir, "auth", auth.TokenEnabled(), "api", "/api", "ui", "/")
 	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Failed to run server: %v", err)
+		slog.Error("server failed", "err", err)
+		os.Exit(1)
 	}
 }

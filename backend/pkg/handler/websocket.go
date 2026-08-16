@@ -2,7 +2,7 @@ package handler
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -68,7 +68,7 @@ func (h *WSHub) Broadcast(event string, data interface{}) {
 	select {
 	case h.broadcast <- WSMessage{Event: event, Data: data}:
 	default:
-		log.Printf("WS: broadcast queue full, dropping event %q", event)
+		slog.Warn("ws: broadcast queue full, dropping event", "event", event)
 	}
 }
 
@@ -101,7 +101,7 @@ func (h *WSHub) run() {
 				default:
 					// Client's queue is full → it's too slow. Drop it so a
 					// single laggard never blocks the rest of the hub.
-					log.Printf("WS: client %v too slow, disconnecting", client.conn.RemoteAddr())
+					slog.Warn("ws: disconnecting slow client", "remote", client.conn.RemoteAddr())
 					delete(h.clients, client)
 					close(client.send)
 				}
@@ -131,7 +131,7 @@ func (h *WSHub) writePump(client *WSClient) {
 func (h *WSHub) HandleWS(c *gin.Context) {
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("Failed to upgrade connection: %v", err)
+		slog.Error("ws: upgrade failed", "err", err)
 		return
 	}
 

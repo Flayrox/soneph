@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -116,9 +117,30 @@ func (s *Scanner) ListFiles() ([]DownloadedFile, error) {
 	return files, err
 }
 
+// ResolvePath converts a rel_path from the API into a safe absolute path,
+// refusing anything that escapes the downloads directory (../ traversal).
+func (s *Scanner) ResolvePath(relPath string) (string, error) {
+	clean := filepath.Clean(relPath)
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) ||
+		strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+		return "", ErrInvalidPath
+	}
+	full := filepath.Join(s.DownloadDir, clean)
+	if full != s.DownloadDir && !strings.HasPrefix(full, s.DownloadDir+string(os.PathSeparator)) {
+		return "", ErrInvalidPath
+	}
+	return full, nil
+}
+
+// ErrInvalidPath is returned when a rel_path escapes the downloads directory.
+var ErrInvalidPath = errors.New("invalid path: must stay inside the downloads directory")
+
 func (s *Scanner) DeleteFile(relPath string) error {
-	fullPath := filepath.Join(s.DownloadDir, filepath.Clean(relPath))
-	err := os.Remove(fullPath)
+	fullPath, err := s.ResolvePath(relPath)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(fullPath)
 	if err != nil {
 		return err
 	}

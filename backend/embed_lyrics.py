@@ -60,7 +60,7 @@ def embed_lrc_into_mp3(folder):
                 tags.add(USLT(encoding=3, lang='eng', desc='', text=plain_lyrics))
                 tags.add(USLT(encoding=3, lang='XXX', desc='', text=plain_lyrics))
 
-                # 2. Add SYLT (Synchronized Lyrics) frame for l'app Musique & iTunes time-sync
+                # 2. Add SYLT (Synchronized Lyrics) frame for time-synced playback
                 if sylt_data:
                     tags.add(SYLT(encoding=3, lang='fra', format=2, type=1, desc='', text=sylt_data))
                     tags.add(SYLT(encoding=3, lang='eng', format=2, type=1, desc='', text=sylt_data))
@@ -70,7 +70,7 @@ def embed_lrc_into_mp3(folder):
                 tags.add(TXXX(encoding=3, desc='LYRICS_SYNC_TYPE', text=[sync_type]))
                 tags.add(TXXX(encoding=3, desc='HAS_LYRICS', text=['true']))
 
-                # Save specifically as ID3v2.3 for l'app Musique Cloud compatibility
+                # Save specifically as ID3v2.3 for maximum player compatibility
                 tags.save(mp3_file, v2_version=3)
                 print(f"Successfully embedded ID3v2.3 ({sync_type}) lyrics into: {mp3_file}")
             except Exception as e:

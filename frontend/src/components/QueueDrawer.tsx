@@ -1,6 +1,7 @@
 import React from "react";
 import { X, Loader2, CheckCircle2, AlertCircle, Clock, Zap, Music, Disc } from "lucide-react";
-import { DownloadTask } from "./TrackList";
+import type { DownloadTask } from "@/types";
+import { useI18n } from "@/i18n";
 
 interface QueueDrawerProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   onClose,
   tasks,
 }) => {
+  const { t } = useI18n();
   if (!isOpen) return null;
 
   const activeDownloading = tasks.filter((t) => t.status === "downloading");
@@ -31,10 +33,10 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <Loader2 className="w-4 h-4 text-apple-pink animate-spin" />
-              <span>Playlist Download Queue</span>
+              <span>{t("Playlist Download Queue")}</span>
             </h2>
             <p className="text-xs text-apple-subtext mt-0.5 font-medium">
-              {activeDownloading.length} active worker(s) • {queued.length} queued • {allRecentTracks.length} tracks done
+              {activeDownloading.length} {t("active worker(s)")} • {queued.length} {t("queued")} • {allRecentTracks.length} {t("tracks done")}
             </p>
           </div>
 
@@ -53,7 +55,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             <div className="space-y-3">
               <h3 className="text-xs font-semibold text-apple-pink uppercase tracking-wider flex items-center gap-1.5">
                 <Zap className="w-3.5 h-3.5" />
-                <span>Downloading Now</span>
+                <span>{t("Downloading Now")}</span>
               </h3>
 
               <div className="space-y-3">
@@ -61,7 +63,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   const total = task.total_tracks || 0;
                   const done = task.completed_count || 0;
                   const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-                  const currentSong = task.current_track || "Processing playlist...";
+                  const currentSong = task.current_track || t("Processing playlist...");
 
                   return (
                     <div
@@ -75,7 +77,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                         </div>
                         <div className="min-w-0 flex-1">
                           <span className="text-[10px] uppercase font-bold tracking-wider text-apple-pink">
-                            Now Downloading
+                            {t("Now Downloading")}
                           </span>
                           <p className="text-xs font-bold text-white truncate leading-snug">
                             {currentSong}
@@ -87,7 +89,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                       <div className="space-y-1.5 pt-1 border-t border-white/5">
                         <div className="flex justify-between text-xs text-apple-subtext font-medium">
                           <span>
-                            {total > 0 ? `${Math.min(done, total)} of ${total} songs` : task.progress}
+                            {total > 0 ? `${Math.min(done, total)} ${t("of")} ${total} ${t("songs")}` : task.progress}
                           </span>
                           <span className="font-bold text-white">{percent}%</span>
                         </div>
@@ -115,7 +117,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             <div className="space-y-3">
               <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Downloaded Songs ({allRecentTracks.length})</span>
+                <span>{t("Downloaded Songs")} ({allRecentTracks.length})</span>
               </h3>
 
               <div className="space-y-2">
@@ -129,7 +131,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                       <span className="truncate font-semibold text-white">{song}</span>
                     </div>
                     <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium shrink-0">
-                      Downloaded
+                      {t("Downloaded")}
                     </span>
                   </div>
                 ))}
@@ -142,7 +144,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             <div className="space-y-3">
               <h3 className="text-xs font-semibold text-apple-subtext uppercase tracking-wider flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" />
-                <span>Up Next in Queue ({queued.length})</span>
+                <span>{t("Up Next in Queue")} ({queued.length})</span>
               </h3>
 
               <div className="space-y-2">
@@ -155,7 +157,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                       {task.url}
                     </span>
                     <span className="text-[10px] bg-white/10 text-zinc-300 px-2 py-0.5 rounded-full font-medium">
-                      Queued
+                      {t("Queued")}
                     </span>
                   </div>
                 ))}
@@ -168,7 +170,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             <div className="space-y-3">
               <h3 className="text-xs font-semibold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" />
-                <span>Failed Imports ({failed.length})</span>
+                <span>{t("Failed Imports")} ({failed.length})</span>
               </h3>
 
               <div className="space-y-2">
@@ -178,7 +180,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                     className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-300 space-y-1"
                   >
                     <p className="font-semibold truncate">{task.url}</p>
-                    <p className="text-[11px] text-rose-400/80">{task.error || "Execution error"}</p>
+                    <p className="text-[11px] text-rose-400/80">{task.error || t("Execution error")}</p>
                   </div>
                 ))}
               </div>
@@ -188,7 +190,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
 
         {/* Footer */}
         <div className="pt-4 border-t border-white/10 text-center text-xs text-apple-subtext font-medium">
-          <span>All tracks auto-sync into macOS l'app Musique & Finder</span>
+          <span>{t("All tracks auto-sync into the macOS Music app & Finder")}</span>
         </div>
       </div>
     </div>
