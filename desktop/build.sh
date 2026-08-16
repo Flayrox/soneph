@@ -38,6 +38,13 @@ fi
 mkdir -p "$APP/Contents/Resources/bin"
 cp "$ROOT/backend/bin/soneph-server" "$APP/Contents/Resources/bin/soneph-server"
 
+# Scripts Python helpers dans Resources/bin, à côté du binaire : le backend
+# les résout par rapport à son propre binaire (GetScriptPath → Resources/bin).
+# Sans eux, les playlists, paroles, tags et stats échouent silencieusement
+# dans l'app packagée (le cwd n'est pas fiable, le dossier ne contient que
+# le binaire).
+cp "$ROOT"/backend/*.py "$APP/Contents/Resources/bin/"
+
 # Watcher d'auto-import dans Resources/scripts (résolu par le backend par
 # rapport à son propre binaire — sinon « introuvable » dans l'app packagée)
 mkdir -p "$APP/Contents/Resources/scripts"

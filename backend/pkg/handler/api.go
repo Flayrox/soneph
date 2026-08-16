@@ -2,21 +2,23 @@ package handler
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"soneph-backend/pkg/config"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/history"
 	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/syncmgr"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,13 +64,13 @@ type DownloadRequest struct {
 
 func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, hist *history.Store, likes *history.LikesStore) *API {
 	a := &API{
-		downloader: dl,
-		scanner:    sc,
-		importer:   imp,
-		playlists:  pls,
-		history:    hist,
-		likes:      likes,
-		lyricsJob:  &lyricsRetryJob{Status: "idle"},
+		downloader:    dl,
+		scanner:       sc,
+		importer:      imp,
+		playlists:     pls,
+		history:       hist,
+		likes:         likes,
+		lyricsJob:     &lyricsRetryJob{Status: "idle"},
 		playlistTasks: map[string]string{},
 	}
 	// Quand le moteur déplace un fichier (single → album), on migre les
@@ -125,8 +127,13 @@ func (a *API) resolvePlaylistURL(url string) (name string, matched []resolvedTra
 	pythonExec := downloader.GetPythonExec()
 	script := downloader.GetScriptPath("playlist_from_url.py")
 	cmd := exec.Command(pythonExec, script, a.scanner.DownloadDir, strings.TrimSpace(url))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
+		// Ne plus échouer silencieusement : en app packagée, le script peut
+		// être introuvable (GetScriptPath) ou le Python sans mutagen.
+		slog.Error("resolvePlaylistURL: script failed", "url", url, "script", script, "err", err, "stderr", stderr.String())
 		return "", nil, nil, 0, err
 	}
 	var res struct {
@@ -147,6 +154,7 @@ func (a *API) resolvePlaylistURL(url string) (name string, matched []resolvedTra
 func (a *API) createPlaylistForURL(taskID, url string) *gin.H {
 	name, matched, missing, total, err := a.resolvePlaylistURL(url)
 	if err != nil {
+		slog.Error("createPlaylistForURL: resolution failed — playlist non créée", "url", url, "err", err)
 		return nil
 	}
 	if name == "" {
@@ -523,27 +531,27 @@ func (a *API) RetryLyrics(c *gin.Context) {
 				if name, ok := evt["filename"].(string); ok {
 					a.lyricsJob.Logs = append([]string{"✅ " + name}, a.lyricsJob.Logs...)
 				}
-		case "failed":
-			a.lyricsJob.Failed++
-			if name, ok := evt["filename"].(string); ok {
-				a.lyricsJob.Logs = append([]string{"❌ " + name}, a.lyricsJob.Logs...)
+			case "failed":
+				a.lyricsJob.Failed++
+				if name, ok := evt["filename"].(string); ok {
+					a.lyricsJob.Logs = append([]string{"❌ " + name}, a.lyricsJob.Logs...)
+				}
+			case "kept":
+				a.lyricsJob.Kept++
+				if name, ok := evt["filename"].(string); ok {
+					a.lyricsJob.Logs = append([]string{"ℹ️ " + name + " (texte brut, pas de version synced)"}, a.lyricsJob.Logs...)
+				}
+			case "done":
+				if v, ok := evt["success"].(float64); ok {
+					a.lyricsJob.Success = int(v)
+				}
+				if v, ok := evt["failed"].(float64); ok {
+					a.lyricsJob.Failed = int(v)
+				}
+				if v, ok := evt["kept"].(float64); ok {
+					a.lyricsJob.Kept = int(v)
+				}
 			}
-		case "kept":
-			a.lyricsJob.Kept++
-			if name, ok := evt["filename"].(string); ok {
-				a.lyricsJob.Logs = append([]string{"ℹ️ " + name + " (texte brut, pas de version synced)"}, a.lyricsJob.Logs...)
-			}
-		case "done":
-			if v, ok := evt["success"].(float64); ok {
-				a.lyricsJob.Success = int(v)
-			}
-			if v, ok := evt["failed"].(float64); ok {
-				a.lyricsJob.Failed = int(v)
-			}
-			if v, ok := evt["kept"].(float64); ok {
-				a.lyricsJob.Kept = int(v)
-			}
-		}
 			if len(a.lyricsJob.Logs) > 100 {
 				a.lyricsJob.Logs = a.lyricsJob.Logs[:100]
 			}
@@ -725,8 +733,8 @@ func (a *API) GetPlaylist(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"playlist": gin.H{
-			"id":    p.ID,
-			"name":  p.Name,
+			"id":     p.ID,
+			"name":   p.Name,
 			"tracks": tracks,
 		},
 	})
@@ -1042,4 +1050,3 @@ func sanitizeFilename(name string) string {
 	}
 	return name
 }
-
