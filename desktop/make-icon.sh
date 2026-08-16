@@ -6,7 +6,20 @@ set -euo pipefail
 cd "$(dirname "$0")/resources"
 
 if [ ! -f icon.png ]; then
-  echo "icon.png introuvable — copie le logo du repo : cp ../Sonephe.png icon.png" >&2
+  # icon.png est gitignoré : sur un runner CI il n'existe pas. On le génère
+  # depuis le logo commité à la racine du repo (Sonephe.png), ou depuis
+  # icon.svg en secours.
+  if [ -f ../../Sonephe.png ]; then
+    cp ../../Sonephe.png icon.png
+  elif [ -f ../Sonephe.png ]; then
+    cp ../Sonephe.png icon.png
+  elif [ -f icon.svg ] && command -v qlmanage >/dev/null 2>&1; then
+    qlmanage -t -s 1024 -o . icon.svg >/dev/null 2>&1 || true
+    [ -f icon.svg.png ] && mv icon.svg.png icon.png
+  fi
+fi
+if [ ! -f icon.png ]; then
+  echo "icon.png introuvable — place le logo à la racine du repo (Sonephe.png)" >&2
   exit 1
 fi
 
