@@ -29,3 +29,27 @@ export interface DownloadTask {
   created_at: string;
   error?: string;
 }
+
+export interface PlaylistSummary {
+  id: string;
+  name: string;
+  track_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Playlist {
+  id: string;
+  name: string;
+  tracks: DownloadedFile[];
+}
+
+export interface HistoryRecord {
+  path: string;
+  played_at: string;
+}
+
+export interface TopTrack {
+  path: string;
+  plays: number;
+}

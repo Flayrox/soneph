@@ -123,3 +123,10 @@ syncthing_config/
 !backend/web/dist/
 backend/web/dist/*
 !backend/web/dist/index.html
+
+# Local Go build artifacts
+backend/soneph-server
+backend/soneph-server.exe
+
+# Tooling internal state
+.freebuff/

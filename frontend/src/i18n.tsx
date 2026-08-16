@@ -11,11 +11,14 @@ const dict: Record<Lang, Record<string, string>> = {
   fr: {
     // ── Navigation ──
     Songs: "Sons",
+    "All Music": "Toutes les musiques",
+    Music: "Musique",
     Lyrics: "Paroles",
     "Recently Added": "Ajouts récents",
     Artists: "Artistes",
     Albums: "Albums",
     Pins: "Épinglés",
+    Downloads: "Téléchargements",
     "Sync & Settings": "Sync & Réglages",
     Home: "Accueil",
     Radio: "Radio",
@@ -193,6 +196,44 @@ const dict: Record<Lang, Record<string, string>> = {
     "Time-Synced Karaoke LRC lyrics": "Paroles LRC synchronisées (karaoké)",
     "Plain text unsynced lyrics": "Paroles en texte non synchronisées",
     "No lyrics downloaded yet": "Pas encore de paroles",
+
+    // ── Playlists ──
+    Playlist: "Playlist",
+    "New Playlist": "Nouvelle playlist",
+    "Playlist Name": "Nom de la playlist",
+    "Add to Playlist": "Ajouter à la playlist",
+    "Remove from Playlist": "Retirer de la playlist",
+    "No playlists yet": "Aucune playlist pour l'instant",
+    "Play All": "Tout écouter",
+    "Delete Playlist": "Supprimer la playlist",
+    "Playlist created": "Playlist créée",
+    "Playlist deleted": "Playlist supprimée",
+    "Added to playlist": "Ajouté à la playlist",
+    "Removed from playlist": "Retiré de la playlist",
+    "This playlist is empty": "Cette playlist est vide",
+    "Add tracks from the library with the + button":
+      "Ajoute des morceaux depuis la bibliothèque avec le bouton +",
+    "No downloads yet": "Aucun téléchargement pour l'instant",
+    "Import a link above to start downloading": "Colle un lien ci-dessus pour commencer à télécharger",
+
+    // ── Accueil & Likes ──
+    "Recent listens": "Dernières écoutes",
+    "Top tracks": "Morceaux les plus écoutés",
+    "Liked tracks": "Morceaux aimés",
+    "Recently played": "Récemment écoutés",
+    "times": "fois",
+    "plays": "lectures",
+    "Liked": "Aimé",
+    "Like": "Aimer",
+    "Play something to start building your history":
+      "Écoute un morceau pour commencer à remplir ton historique",
+    "No likes yet — tap the heart on a track": "Aucun morceau aimé — clique sur le cœur d'un morceau",
+    "Welcome back": "Bon retour",
+    "Your library at a glance": "Ta bibliothèque en un coup d'œil",
+    "Total tracks": "Morceaux au total",
+    "Tracks liked": "Morceaux aimés",
+    "Track added to likes": "Morceau ajouté aux favoris",
+    "Track removed from likes": "Morceau retiré des favoris",
 
     // ── Token API ──
     "API Token (optional)": "Token API (optionnel)",

@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"soneph-backend/pkg/config"
 	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/history"
+	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/syncmgr"
 	"strings"
@@ -24,6 +27,9 @@ type API struct {
 	downloader  *downloader.Manager
 	scanner     *storage.Scanner
 	importer    *syncmgr.Importer
+	playlists   *playlists.Store
+	history     *history.Store
+	likes       *history.LikesStore
 	lyricsJobMu sync.Mutex
 	lyricsJob   *lyricsRetryJob
 }
@@ -45,11 +51,14 @@ type DownloadRequest struct {
 	Order   string `json:"order"`
 }
 
-func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer) *API {
+func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, hist *history.Store, likes *history.LikesStore) *API {
 	return &API{
 		downloader: dl,
 		scanner:    sc,
 		importer:   imp,
+		playlists:  pls,
+		history:    hist,
+		likes:      likes,
 		lyricsJob:  &lyricsRetryJob{Status: "idle"},
 	}
 }
@@ -332,6 +341,203 @@ func (a *API) SaveSettings(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Réglages enregistrés", "settings": config.Load()})
+}
+
+// ListPlaylists returns all playlists (id, name, track count).
+func (a *API) ListPlaylists(c *gin.Context) {
+	pls, err := a.playlists.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"playlists": pls})
+}
+
+// CreatePlaylist creates a new empty playlist.
+func (a *API) CreatePlaylist(c *gin.Context) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'name' is required."})
+		return
+	}
+	p, err := a.playlists.Create(req.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"playlist": p})
+}
+
+// DeletePlaylist removes a playlist and its file.
+func (a *API) DeletePlaylist(c *gin.Context) {
+	if err := a.playlists.Delete(c.Param("id")); err != nil {
+		if err == playlists.ErrNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Playlist deleted"})
+}
+
+// GetPlaylist resolves a playlist's tracks against the scanned library
+// (missing files are skipped).
+func (a *API) GetPlaylist(c *gin.Context) {
+	p, err := a.playlists.Get(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
+		return
+	}
+	files, err := a.scanner.ListFiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	byPath := make(map[string]storage.DownloadedFile, len(files))
+	for _, f := range files {
+		byPath[f.RelPath] = f
+	}
+	tracks := make([]storage.DownloadedFile, 0, len(p.Tracks))
+	for _, tp := range p.Tracks {
+		if f, ok := byPath[tp]; ok {
+			tracks = append(tracks, f)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"playlist": gin.H{
+			"id":    p.ID,
+			"name":  p.Name,
+			"tracks": tracks,
+		},
+	})
+}
+
+// AddPlaylistTrack appends a track (by rel_path) to a playlist.
+func (a *API) AddPlaylistTrack(c *gin.Context) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'path' is required."})
+		return
+	}
+	// Validate the path stays inside the downloads directory.
+	if _, err := a.scanner.ResolvePath(req.Path); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	p, err := a.playlists.AddTrack(c.Param("id"), req.Path)
+	if err != nil {
+		if err == playlists.ErrNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"playlist": p})
+}
+
+// RemovePlaylistTrack removes a track (by rel_path) from a playlist.
+func (a *API) RemovePlaylistTrack(c *gin.Context) {
+	path := c.Query("path")
+	if path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
+		return
+	}
+	p, err := a.playlists.RemoveTrack(c.Param("id"), path)
+	if err != nil {
+		if err == playlists.ErrNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"playlist": p})
+}
+
+// Scrobble records a play event so the Home view can show recent listens.
+func (a *API) Scrobble(c *gin.Context) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'path' is required."})
+		return
+	}
+	// Only accept paths inside the downloads directory.
+	if _, err := a.scanner.ResolvePath(req.Path); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	a.history.Add(req.Path)
+	c.JSON(http.StatusOK, gin.H{"message": "Play recorded"})
+}
+
+// GetRecentHistory returns the last played tracks, most recent first.
+func (a *API) GetRecentHistory(c *gin.Context) {
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	recs := a.history.Recent(limit)
+	c.JSON(http.StatusOK, gin.H{"history": recs})
+}
+
+// GetTopTracks returns the most played tracks, descending.
+func (a *API) GetTopTracks(c *gin.Context) {
+	limit := 20
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"top": a.history.MostPlayed(limit)})
+}
+
+// GetLikes returns the set of liked rel_paths.
+func (a *API) GetLikes(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"likes": a.likes.List()})
+}
+
+// AddLike likes a track.
+func (a *API) AddLike(c *gin.Context) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'path' is required."})
+		return
+	}
+	if _, err := a.scanner.ResolvePath(req.Path); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if _, err := a.likes.Add(req.Path); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Track liked"})
+}
+
+// RemoveLike unlikes a track.
+func (a *API) RemoveLike(c *gin.Context) {
+	path := c.Query("path")
+	if path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
+		return
+	}
+	if _, err := a.likes.Remove(path); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Track unliked"})
 }
 
 // GetSyncStatus returns the auto-import status.

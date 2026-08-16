@@ -9,6 +9,8 @@ import (
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/handler"
+	"soneph-backend/pkg/history"
+	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/syncmgr"
 	"strings"
@@ -58,7 +60,10 @@ func main() {
 	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast)
 	scanner := storage.NewScanner(downloadDir)
 	importer := syncmgr.New(downloadDir)
-	api := handler.NewAPI(dlManager, scanner, importer)
+	playlistStore := playlists.New()
+	historyStore := history.New()
+	likesStore := history.NewLikes()
+	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore)
 
 	r := gin.Default()
 
@@ -90,6 +95,18 @@ func main() {
 		apiGroup.GET("/lyrics/retry", api.GetLyricsJobStatus)
 		apiGroup.GET("/settings", api.GetSettings)
 		apiGroup.POST("/settings", api.SaveSettings)
+		apiGroup.GET("/playlists", api.ListPlaylists)
+		apiGroup.POST("/playlists", api.CreatePlaylist)
+		apiGroup.DELETE("/playlists/:id", api.DeletePlaylist)
+		apiGroup.GET("/playlists/:id", api.GetPlaylist)
+		apiGroup.POST("/playlists/:id/tracks", api.AddPlaylistTrack)
+		apiGroup.DELETE("/playlists/:id/tracks", api.RemovePlaylistTrack)
+		apiGroup.POST("/scrobble", api.Scrobble)
+		apiGroup.GET("/history/recent", api.GetRecentHistory)
+		apiGroup.GET("/history/top", api.GetTopTracks)
+		apiGroup.GET("/likes", api.GetLikes)
+		apiGroup.POST("/likes", api.AddLike)
+		apiGroup.DELETE("/likes", api.RemoveLike)
 		apiGroup.GET("/sync/status", api.GetSyncStatus)
 		apiGroup.POST("/sync/start", api.StartSync)
 		apiGroup.POST("/sync/stop", api.StopSync)

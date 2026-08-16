@@ -98,6 +98,25 @@ func TestDeleteFileRemovesLrc(t *testing.T) {
 	}
 }
 
+// TestResolvePathRelativeDir : un base dir relatif (ex. "./downloads") ne doit
+// pas casser la résolution — le bug qui rejetait tous les chemins.
+func TestResolvePathRelativeDir(t *testing.T) {
+	s := NewScanner("./downloads")
+
+	full, err := s.ResolvePath("Art/Al/Song.mp3")
+	if err != nil {
+		t.Fatalf("relative base dir should resolve fine, got: %v", err)
+	}
+	if full != filepath.Join("downloads", "Art", "Al", "Song.mp3") {
+		t.Fatalf("unexpected resolved path: %q", full)
+	}
+
+	// La traversée reste refusée même avec un base relatif.
+	if _, err := s.ResolvePath("../outside.mp3"); err == nil {
+		t.Fatal("expected traversal to be rejected with a relative base")
+	}
+}
+
 // TestDeleteFilePathTraversal vérifie qu'un rel_path avec ../ ne sort pas du
 // dossier de téléchargements.
 func TestDeleteFilePathTraversal(t *testing.T) {

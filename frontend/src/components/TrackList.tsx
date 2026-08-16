@@ -1,6 +1,6 @@
-import React from "react";
-import { Play, Pause, Trash2, Music, Clock } from "lucide-react";
-import type { DownloadedFile, DownloadTask } from "@/types";
+import React, { useState } from "react";
+import { Play, Pause, Trash2, Music, Clock, Plus, ListPlus, Heart } from "lucide-react";
+import type { DownloadedFile, DownloadTask, PlaylistSummary } from "@/types";
 import { useI18n } from "@/i18n";
 
 // Ré-export pour compatibilité avec les imports existants
@@ -15,6 +15,11 @@ interface TrackListProps {
   onSelectTrack?: (track: DownloadedFile) => void;
   onDelete: (path: string) => void;
   getApiUrl?: () => string;
+  playlists?: PlaylistSummary[];
+  onAddToPlaylist?: (playlistId: string, path: string) => void;
+  onCreatePlaylist?: (name: string) => void;
+  likes?: Set<string>;
+  onToggleLike?: (path: string) => void;
 }
 
 export const TrackList: React.FC<TrackListProps> = ({
@@ -26,8 +31,15 @@ export const TrackList: React.FC<TrackListProps> = ({
   onSelectTrack,
   onDelete,
   getApiUrl,
+  playlists = [],
+  onAddToPlaylist,
+  onCreatePlaylist,
+  likes,
+  onToggleLike,
 }) => {
   const { t } = useI18n();
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
 
   const formatDuration = (seconds?: number) => {
     if (!seconds || isNaN(seconds)) return "3:30";
@@ -259,17 +271,104 @@ export const TrackList: React.FC<TrackListProps> = ({
                 </td>
 
                 {/* Actions */}
-                <td className="py-2.5 px-4 text-right">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(file.rel_path);
-                    }}
-                    className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all"
-                    title={t("Delete track")}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                <td className="py-2.5 px-4 text-right relative">
+                  <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                    {likes && onToggleLike && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleLike(file.rel_path);
+                        }}
+                        className="p-1 rounded text-zinc-500 hover:bg-white/10 transition-all"
+                        title={likes.has(file.rel_path) ? "Unlike" : "Like"}
+                      >
+                        <Heart
+                          className={`w-3.5 h-3.5 ${
+                            likes.has(file.rel_path)
+                              ? "text-apple-pink fill-apple-pink"
+                              : "hover:text-apple-pink"
+                          }`}
+                        />
+                      </button>
+                    )}
+                    {onAddToPlaylist && onCreatePlaylist && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuFor(menuFor === file.rel_path ? null : file.rel_path);
+                        }}
+                        className="p-1 rounded text-zinc-500 hover:text-apple-pink hover:bg-white/10 transition-all"
+                        title={t("Add to Playlist")}
+                      >
+                        {menuFor === file.rel_path ? (
+                          <ListPlus className="w-3.5 h-3.5 text-apple-pink" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(file.rel_path);
+                      }}
+                      className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-white/10 transition-all"
+                      title={t("Delete track")}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Add-to-playlist popover */}
+                  {menuFor === file.rel_path && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />
+                      <div
+                        className="absolute right-8 top-1/2 -translate-y-1/2 z-50 w-52 bg-[#1e1e22] border border-white/10 rounded-xl p-1.5 shadow-2xl text-xs"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-2 py-1 text-[10px] font-semibold text-apple-subtext uppercase tracking-wider">
+                          {t("Add to Playlist")}
+                        </div>
+                        <div className="max-h-36 overflow-y-auto scrollbar-none space-y-0.5">
+                          {playlists.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => {
+                                onAddToPlaylist?.(p.id, file.rel_path);
+                                setMenuFor(null);
+                              }}
+                              className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-white/10 transition-colors"
+                            >
+                              <span className="truncate text-zinc-200">{p.name}</span>
+                              <span className="text-[10px] text-apple-subtext shrink-0">{p.track_count}</span>
+                            </button>
+                          ))}
+                          {playlists.length === 0 && (
+                            <div className="px-2 py-1.5 text-zinc-500">{t("No playlists yet")}</div>
+                          )}
+                        </div>
+                        <form
+                          className="mt-1 border-t border-white/10 pt-1.5"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (newPlaylistName.trim() && onCreatePlaylist) {
+                              onCreatePlaylist(newPlaylistName.trim());
+                              setNewPlaylistName("");
+                              setMenuFor(null);
+                            }
+                          }}
+                        >
+                          <input
+                            value={newPlaylistName}
+                            onChange={(e) => setNewPlaylistName(e.target.value)}
+                            placeholder={t("New Playlist")}
+                            className="w-full bg-[#242428] border border-white/10 focus:border-apple-pink rounded-lg px-2 py-1.5 text-xs text-white placeholder-apple-subtext focus:outline-none"
+                          />
+                        </form>
+                      </div>
+                    </>
+                  )}
                 </td>
               </tr>
             );

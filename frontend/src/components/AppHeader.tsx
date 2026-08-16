@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import LiquidGlass from "liquid-glass-react";
 import { Download, Loader2, Search, SlidersHorizontal, Check } from "lucide-react";
 import { useI18n, LangToggle } from "@/i18n";
 
@@ -7,6 +8,7 @@ interface AppHeaderProps {
   isLoading: boolean;
   activeTasksCount: number;
   currentNav: string;
+  currentPlaylistName?: string | null;
   onOpenQueue?: () => void;
 }
 
@@ -15,6 +17,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   isLoading,
   activeTasksCount,
   currentNav,
+  currentPlaylistName,
   onOpenQueue,
 }) => {
   const { t } = useI18n();
@@ -43,21 +46,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   };
 
   const getNavTitle = () => {
+    if (currentNav.startsWith("pl:")) {
+      return currentPlaylistName || t("Playlist");
+    }
     switch (currentNav) {
-      case "recently_added":
-        return t("Recently Added");
-      case "artists":
-        return t("Artists");
-      case "albums":
-        return t("Albums");
-      case "pins":
-        return t("Pins");
+      case "home":
+        return t("Home");
+      case "downloads":
+        return t("Downloads");
       case "lyrics":
         return t("Lyrics");
       case "sync":
         return t("Sync & Settings");
+      case "liked":
+        return t("Liked tracks");
       default:
-        return t("Songs");
+        return t("All Music");
     }
   };
 
@@ -71,6 +75,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       {/* Center Download Input & Clean Options Popover */}
       <div className="flex items-center gap-2">
         {/* Import Link Form */}
+        <LiquidGlass cornerRadius={999} padding="0 6px" blurAmount={0.015} displacementScale={25}>
         <form onSubmit={handleSubmit} className="relative flex items-center w-64 sm:w-80">
           <Search className="w-4 h-4 absolute left-3.5 text-apple-subtext" />
           <input
@@ -78,7 +83,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder={t("Paste Link...")}
-            className="w-full bg-[#242428] border border-white/10 focus:border-apple-pink rounded-full py-1.5 pl-10 pr-24 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all shadow-inner"
+            className="w-full bg-[#242428]/50 border border-white/10 focus:border-apple-pink rounded-full py-1.5 pl-10 pr-24 text-xs text-white placeholder-apple-subtext focus:outline-none transition-all shadow-inner"
           />
           <button
             type="submit"
@@ -93,6 +98,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <span>{t("Import")}</span>
           </button>
         </form>
+        </LiquidGlass>
 
         <LangToggle />
 

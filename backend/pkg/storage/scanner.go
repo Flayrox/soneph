@@ -125,8 +125,11 @@ func (s *Scanner) ResolvePath(relPath string) (string, error) {
 		strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
 		return "", ErrInvalidPath
 	}
-	full := filepath.Join(s.DownloadDir, clean)
-	if full != s.DownloadDir && !strings.HasPrefix(full, s.DownloadDir+string(os.PathSeparator)) {
+	// Clean the download dir too: a relative base like "./downloads" would
+	// otherwise break the prefix check (Join normalizes it to "downloads/").
+	dir := filepath.Clean(s.DownloadDir)
+	full := filepath.Join(dir, clean)
+	if full != dir && !strings.HasPrefix(full, dir+string(os.PathSeparator)) {
 		return "", ErrInvalidPath
 	}
 	return full, nil

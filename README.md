@@ -8,6 +8,9 @@
 
 - 🎧 **Qualité 320 kbps HD** : Extraction automatique avec tags complets (Pochette, Artiste, Album, Paroles LRC).
 - 🎤 **Lecteur Karaoké intégré** : Suivi des paroles synchronisées en direct dans le Dashboard Web.
+- ❤️ **Likes & Accueil** : Cœurs sur chaque morceau, vue **Accueil** avec dernières écoutes, top morceaux et favoris (historique persistant côté serveur).
+- 🎵 **Playlists** : Création, ajout/retrait de morceaux et lecture en boucle depuis la bibliothèque.
+- 🪟 **Interface Liquid Glass** : Effet de verre liquide (réfraction + flou) via `liquid-glass-react` sur le lecteur et la barre d'import.
 - ⚡ **Backend Go (Gin)** : Moteur haute performance gérant les files d'attente et WebSockets temps réel.
 - 📱 **Synchronisation iOS & Windows** : Intégration P2P via Syncthing pour injecter directement les sons dans tes apps de lecture sans câble.
 - 🐳 **Docker Native** : Déploiement en 1 seule commande avec Docker Compose — un seul conteneur web (le frontend Vite est embarqué dans le binaire Go).
@@ -35,7 +38,7 @@ docker compose up -d --build
 
 | Composant | Technologie |
 | :--- | :--- |
-| **Frontend** | Vite + React 18, TypeScript, Tailwind CSS (SPA 100 % client, embarquée dans le binaire Go) |
+| **Frontend** | Vite + React 18, TypeScript, Tailwind CSS, `liquid-glass-react` (SPA 100 % client, embarquée dans le binaire Go) |
 | **Backend** | Go (Gin Framework), WebSockets, `go:embed` pour servir le frontend |
 | **Downloader** | Moteur de téléchargement Python 3.11 + FFmpeg |
 | **Sync Engine** | Syncthing P2P |
@@ -66,6 +69,8 @@ Le script lance les deux serveurs, installe les dépendances frontend au premier
 | `SONEPH_ENGINE` | *(vide)* | Remplace le binaire du moteur de téléchargement (utile si tu l'installes sous un autre nom). |
 | `DOWNLOAD_DIR` | `./downloads` | Dossier de destination (en Docker : `/app/downloads`). |
 | `SONEPH_TOKEN` | *(vide)* | Si défini, **protège toute l'API** : chaque requête `/api/*` (et le WebSocket) doit présenter le token. |
+| `SONEPH_HISTORY_FILE` | `~/.config/soneph/history.json` | Fichier d'historique d'écoute (dernières écoutes + top). |
+| `SONEPH_LIKES_FILE` | `~/.config/soneph/likes.json` | Fichier des morceaux aimés. |
 | `LOG_FORMAT` | `text` | `json` pour des logs structurés exploitables par un outil. |
 
 > ⚡ Les paroles sont désormais récupérées **en arrière-plan** après le téléchargement : l'audio arrive vite, les `.lrc` suivent sans bloquer la file d'attente.
@@ -93,6 +98,17 @@ caddy run --config Caddyfile
 3. **Rate limiting** : déjà actif côté API (120 req/min/IP) — une protection de base contre le bourrage.
 
 > 💡 La page web elle-même reste publique (elle ne fait rien sans token) ; tu peux aussi la protéger entièrement avec l'auth basic de Caddy si tu préfères.
+
+### Playlists 🎧
+
+Une section **Playlists** dans la barre latérale permet de créer des playlists, d'y ajouter n'importe quel morceau (bouton **+** sur une ligne de la bibliothèque), de les écouter dans l'ordre (bouton **Play All**) et de les supprimer. Les playlists sont stockées en JSON côté serveur (`~/.config/soneph/playlists/`) et survivent aux redémarrages.
+
+### Sections de l'UI
+
+- **Toutes les musiques** : toute la bibliothèque (recherche, tri, lecture)
+- **Playlists** : tes playlists
+- **Téléchargements** : file d'attente, progression, morceaux récents et échecs
+- **Paroles** : gestion des paroles synchronisées · **Sync & Réglages** : auto-import + réglages + token
 
 ### Réglages depuis l'UI
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import LiquidGlass from "liquid-glass-react";
 import {
   Play,
   Pause,
@@ -100,7 +101,8 @@ export const Player: React.FC<PlayerProps> = ({
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 select-none">
       {/* Floating liquid glass capsule */}
-      <div className="bg-[#2a2a2e]/85 backdrop-blur-3xl border border-white/15 rounded-2xl px-5 py-3 shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex items-center gap-6 min-w-[560px]">
+      <LiquidGlass cornerRadius={16} padding="0px" blurAmount={0.02} displacementScale={30}>
+        <div className="flex items-center gap-6 min-w-[560px] px-5 py-3">
         {/* Controls */}
         <div className="flex items-center gap-3">
           <button className="text-apple-subtext hover:text-white transition-colors">
@@ -189,7 +191,8 @@ export const Player: React.FC<PlayerProps> = ({
             />
           </div>
         </div>
-      </div>
+        </div>
+      </LiquidGlass>
 
       {/* Embedded Progress Scrub Line under capsule */}
       <div className="mt-1 px-4">
