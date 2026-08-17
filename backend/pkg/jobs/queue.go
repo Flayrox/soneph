@@ -35,9 +35,16 @@ type Queue struct {
 
 	mu              sync.Mutex // sérialise dequeue + breaker (mono-instance)
 	breakers        map[string]*breaker
+	typesMu         sync.Mutex        // protège types (écrit par Enqueue/Dequeue)
+	types           map[string]string // id → type, pour les événements (mono-instance)
 	retryBase       time.Duration
 	maxAttempts     int
 	breakerCooldown time.Duration
+
+	// broadcast notifie les clients connectés (WebSocket) de chaque
+	// transition d'état d'un job — M4 : la file est visible en direct,
+	// sans polling. Événement émis : « job_update ».
+	broadcast func(event string, data interface{})
 }
 
 type breaker struct {
@@ -50,10 +57,19 @@ func New(st store.Store) *Queue {
 	return &Queue{
 		st:              st,
 		breakers:        map[string]*breaker{},
+		types:           map[string]string{},
 		retryBase:       DefaultRetryBase,
 		maxAttempts:     DefaultMaxAttempts,
 		breakerCooldown: BreakerCooldown,
 	}
+}
+
+// WithBroadcast branche la file sur le hub WebSocket : chaque transition
+// d'état (queued → running → done/failed/retry) émet « job_update » avec le
+// job concerné.
+func (q *Queue) WithBroadcast(fn func(event string, data interface{})) *Queue {
+	q.broadcast = fn
+	return q
 }
 
 // WithRetry ajuste le backoff et le nombre max de tentatives (tests).
@@ -84,7 +100,29 @@ func (q *Queue) Enqueue(job store.Job) error {
 	if job.Status == "" {
 		job.Status = "queued"
 	}
-	return q.st.CreateJob(job)
+	if job.Type != "" {
+		q.typesMu.Lock()
+		q.types[job.ID] = job.Type
+		q.typesMu.Unlock()
+	}
+	if err := q.st.CreateJob(job); err != nil {
+		return err
+	}
+	q.emit(job)
+	return nil
+}
+
+// emit publie « job_update » aux clients connectés (no-op sans WithBroadcast).
+func (q *Queue) emit(job store.Job) {
+	if q.broadcast == nil {
+		return
+	}
+	if job.Type == "" {
+		q.typesMu.Lock()
+		job.Type = q.types[job.ID]
+		q.typesMu.Unlock()
+	}
+	q.broadcast("job_update", job)
 }
 
 // Dequeue réclame le prochain job 'queued' du type donné (priorité puis
@@ -110,6 +148,10 @@ func (q *Queue) Dequeue(jobType string) (*store.Job, error) {
 			return nil, fmt.Errorf("jobs: réclamation de %s: %w", j.ID, err)
 		}
 		if claimed != nil {
+			q.typesMu.Lock()
+			q.types[claimed.ID] = claimed.Type
+			q.typesMu.Unlock()
+			q.emit(*claimed) // running
 			return claimed, nil
 		}
 		// Perdu la course (autre worker) : on retente avec le suivant.
@@ -170,6 +212,9 @@ func (q *Queue) Complete(jobID, source, errMsg string) error {
 		// mis à jour plus haut, reste la vérité.
 		return nil
 	}
+	if err == nil {
+		q.emit(store.Job{ID: jobID, Status: status, Error: errMsg})
+	}
 	return err
 }
 
@@ -178,7 +223,11 @@ func (q *Queue) Complete(jobID, source, errMsg string) error {
 // est épuisé, le job est clôturé en 'failed'.
 func (q *Queue) ScheduleRetry(jobID string, attempts int) error {
 	if attempts >= q.maxAttempts {
-		return q.st.UpdateJobStatus(jobID, "failed", "nombre maximal de tentatives atteint")
+		if err := q.st.UpdateJobStatus(jobID, "failed", "nombre maximal de tentatives atteint"); err != nil {
+			return err
+		}
+		q.emit(store.Job{ID: jobID, Status: "failed", Error: "nombre maximal de tentatives atteint"})
+		return nil
 	}
 	// attempts est ≥ 1 après le dequeue : première nouvelle tentative = 2^0.
 	delay := q.retryBase << (attempts - 1)
@@ -186,7 +235,11 @@ func (q *Queue) ScheduleRetry(jobID string, attempts int) error {
 	if err != nil {
 		return err
 	}
-	return q.st.SetRetryAt(jobID, time.Now().Add(delay))
+	if err := q.st.SetRetryAt(jobID, time.Now().Add(delay)); err != nil {
+		return err
+	}
+	q.emit(store.Job{ID: jobID, Status: "queued"})
+	return nil
 }
 
 // RequeueOrphaned relance les jobs 'running' laissés par un processus mort

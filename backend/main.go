@@ -165,7 +165,11 @@ func main() {
 	}
 	defer st.Close()
 
-	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast, jobs.New(st))
+	// La file de téléchargement vit dans la table jobs (M4) ; chaque
+	// transition d'état (queued → running → done/failed/retry) est poussée
+	// en direct sur le WebSocket — le front voit la file sans polling.
+	jobQueue := jobs.New(st).WithBroadcast(wsHub.Broadcast)
+	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast, jobQueue)
 
 	// Diagnostic précoce : si le moteur de téléchargement n'est pas installé
 	// (ou hors PATH), chaque tâche échouera. On le signale dès le démarrage

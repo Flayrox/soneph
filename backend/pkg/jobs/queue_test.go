@@ -224,3 +224,65 @@ func unique(ids []string) map[string]bool {
 	}
 	return m
 }
+
+// TestBroadcast vérifie que chaque transition d'état de la file émet
+// « job_update » (WebSocket, M4) : enfilé → running → done, puis le cycle
+// d'une nouvelle tentative (queued après retry). La file est visible en
+// direct, sans polling.
+func TestBroadcast(t *testing.T) {
+	st := openTest(t)
+	var events []string
+	q := New(st).WithBroadcast(func(event string, data interface{}) {
+		if event != "job_update" {
+			t.Errorf("événement = %q, want job_update", event)
+		}
+		j, ok := data.(store.Job)
+		if !ok {
+			t.Fatalf("data = %T, want store.Job", data)
+		}
+		events = append(events, j.ID+":"+j.Status)
+	})
+
+	if err := q.Enqueue(store.Job{ID: "j1", Type: "download", Payload: payload("https://open.spotify.com/track/j1")}); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	claimed, err := q.Dequeue("download")
+	if err != nil || claimed == nil {
+		t.Fatalf("dequeue = %v, %v", claimed, err)
+	}
+	if err := q.Complete(claimed.ID, "open.spotify.com", ""); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	want := []string{"j1:queued", "j1:running", "j1:done"}
+	if len(events) != len(want) {
+		t.Fatalf("événements = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Errorf("événement %d = %q, want %q", i, events[i], want[i])
+		}
+	}
+
+	// Cycle de nouvelle tentative : queued → running → queued (retry).
+	events = nil
+	if err := q.Enqueue(store.Job{ID: "j2", Type: "download", Payload: payload("https://open.spotify.com/track/j2")}); err != nil {
+		t.Fatalf("Enqueue j2: %v", err)
+	}
+	claimed2, err := q.Dequeue("download")
+	if err != nil || claimed2 == nil {
+		t.Fatalf("dequeue j2 = %v, %v", claimed2, err)
+	}
+	if err := q.ScheduleRetry(claimed2.ID, 1); err != nil {
+		t.Fatalf("ScheduleRetry: %v", err)
+	}
+	want2 := []string{"j2:queued", "j2:running", "j2:queued"}
+	if len(events) != len(want2) {
+		t.Fatalf("événements retry = %v, want %v", events, want2)
+	}
+	for i := range want2 {
+		if events[i] != want2[i] {
+			t.Errorf("événement retry %d = %q, want %q", i, events[i], want2[i])
+		}
+	}
+}

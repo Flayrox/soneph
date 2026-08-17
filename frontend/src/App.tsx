@@ -111,6 +111,7 @@ export default function App() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const jobResyncRef = useRef<number | null>(null);
   const lastScrobbledRef = useRef<string | null>(null);
 
   const getApiUrl = () => API_URL;
@@ -365,6 +366,15 @@ export default function App() {
             if (added > 0) {
               addToast("success", t("Playlist updated"), `${added} ${t("tracks added")}`);
             }
+          } else if (msg.event === "job_update") {
+            // M4 : la file jobs est la vérité. Chaque transition d'état
+            // (enfilé → running → done/failed/retry) resynchronise la liste
+            // des téléchargements — sans polling ; un petit debounce absorbe
+            // les rafales (ex. import de playlist).
+            if (jobResyncRef.current) window.clearTimeout(jobResyncRef.current);
+            jobResyncRef.current = window.setTimeout(() => {
+              fetchTasks();
+            }, 200);
           }
         } catch (err) {
           console.error("Failed to parse WS message:", err);
