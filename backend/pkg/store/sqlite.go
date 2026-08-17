@@ -211,19 +211,27 @@ func (s *SQLiteStore) SyncLibrary(files []storage.DownloadedFile) (SyncStats, er
 			lyricsSynced = 1
 		}
 		format := strings.TrimPrefix(strings.ToLower(filepath.Ext(f.RelPath)), ".")
-		// track_no, duration_ms, bitrate, isrc : inconnus au scan (tags lus
-		// par file_details.py — porté en Go en M5), laissés NULL pour l'instant.
+
+		// Enrichissement Go des tags (remplace file_details.py pour la base) :
+		// piste, durée, débit estimé, ISRC — lus directement dans le fichier.
+		tags := readTags(f)
+
 		_, err = tx.Exec(`
-			INSERT INTO tracks(path, title, artist_id, album_id, format,
-			                   size_bytes, lyrics_path, lyrics_synced, updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?)
+			INSERT INTO tracks(path, title, artist_id, album_id, track_no,
+			                   duration_ms, bitrate, format, size_bytes, isrc,
+			                   lyrics_path, lyrics_synced, updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(path) DO UPDATE SET
 			  title = excluded.title, artist_id = excluded.artist_id,
-			  album_id = excluded.album_id, size_bytes = excluded.size_bytes,
-			  format = excluded.format, lyrics_path = excluded.lyrics_path,
+			  album_id = excluded.album_id, track_no = excluded.track_no,
+			  duration_ms = excluded.duration_ms, bitrate = excluded.bitrate,
+			  size_bytes = excluded.size_bytes, format = excluded.format,
+			  isrc = excluded.isrc, lyrics_path = excluded.lyrics_path,
 			  lyrics_synced = excluded.lyrics_synced, updated_at = excluded.updated_at`,
-			f.RelPath, title, arID, alID, nullStr(format),
-			nullNum64(f.Size), nullStr(f.LrcPath), lyricsSynced, mtime)
+			f.RelPath, title, arID, alID, nullNum(tags.TrackNo),
+			nullNum(tags.DurationMs), nullNum(tags.Bitrate), nullStr(format),
+			nullNum64(f.Size), nullStr(tags.ISRC),
+			nullStr(f.LrcPath), lyricsSynced, mtime)
 		if err != nil {
 			return stats, fmt.Errorf("store: morceau %q: %w", f.RelPath, err)
 		}

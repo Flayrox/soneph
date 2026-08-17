@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -620,6 +621,99 @@ func TestRenameTrack(t *testing.T) {
 	// Idempotent : même chemin → no-op.
 	if err := st.RenameTrack("x.mp3", "x.mp3"); err != nil {
 		t.Errorf("RenameTrack no-op: %v", err)
+	}
+}
+
+// buildTaggedMP3 écrit un vrai MP3 avec un tag ID3v2.3 (TIT2/TPE1/TALB/TRCK/
+// TSRC) et n frames MPEG-1 Layer III (128 kbps, 44,1 kHz) — assez pour que
+// dhowden/tag le lise et que le parseur MPEG calcule durée et débit.
+func buildTaggedMP3(t *testing.T, dir string, frames int) string {
+	t.Helper()
+	textFrame := func(id, text string) []byte {
+		data := append([]byte{0}, []byte(text)...) // encodage 0 = latin-1
+		out := append([]byte(id), byte(len(data)>>24), byte(len(data)>>16), byte(len(data)>>8), byte(len(data)))
+		out = append(out, 0, 0) // flags
+		return append(out, data...)
+	}
+	var body []byte
+	body = append(body, textFrame("TIT2", "Airbag")...)
+	body = append(body, textFrame("TPE1", "Radiohead")...)
+	body = append(body, textFrame("TALB", "OK Computer")...)
+	body = append(body, textFrame("TRCK", "5/12")...)
+	body = append(body, textFrame("TSRC", "GBARL0600242")...)
+
+	// Taille synchsafe (7 bits par octet).
+	size := len(body)
+	header := []byte{'I', 'D', '3', 3, 0, 0,
+		byte(size >> 21 & 0x7F), byte(size >> 14 & 0x7F), byte(size >> 7 & 0x7F), byte(size & 0x7F)}
+
+	// Frame MPEG-1 Layer III : 0xFF 0xFB 0x90 0x00 → 128 kbps, 44,1 kHz.
+	frameLen := 144*128000/44100 - 4 // 417 - 4
+	var audio []byte
+	for i := 0; i < frames; i++ {
+		audio = append(audio, 0xFF, 0xFB, 0x90, 0x00)
+		audio = append(audio, make([]byte, frameLen)...)
+	}
+
+	path := filepath.Join(dir, "05-airbag.mp3")
+	if err := os.WriteFile(path, append(append(header, body...), audio...), 0o644); err != nil {
+		t.Fatalf("écriture du MP3 de test: %v", err)
+	}
+	return path
+}
+
+func TestReadTags(t *testing.T) {
+	path := buildTaggedMP3(t, t.TempDir(), 10)
+	info := readTags(storage.DownloadedFile{Path: path, RelPath: "05-airbag.mp3", Size: 0})
+
+	if info.TrackNo != 5 {
+		t.Errorf("TrackNo = %d, want 5", info.TrackNo)
+	}
+	if info.ISRC != "GBARL0600242" {
+		t.Errorf("ISRC = %q, want GBARL0600242", info.ISRC)
+	}
+	// 10 frames × 1152 échantillons / 44100 Hz ≈ 261 ms ; 128 kbps.
+	if info.DurationMs < 200 || info.DurationMs > 400 {
+		t.Errorf("DurationMs = %d, want ~261", info.DurationMs)
+	}
+	if info.Bitrate != 128 {
+		t.Errorf("Bitrate = %d, want 128", info.Bitrate)
+	}
+}
+
+func TestSyncLibraryEnrichment(t *testing.T) {
+	st := openTest(t)
+	dir := t.TempDir()
+	path := buildTaggedMP3(t, dir, 10)
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	files := []storage.DownloadedFile{{
+		Path:       path,
+		RelPath:    "05-airbag.mp3",
+		FileName:   "05-airbag.mp3",
+		Title:      "Airbag",
+		Artist:     "Radiohead",
+		Album:      "OK Computer",
+		Size:       fi.Size(),
+		LyricsType: "none",
+		ModTime:    fi.ModTime(),
+	}}
+	if _, err := st.SyncLibrary(files); err != nil {
+		t.Fatalf("SyncLibrary: %v", err)
+	}
+
+	tr, err := st.TrackByPath("05-airbag.mp3")
+	if err != nil {
+		t.Fatalf("TrackByPath: %v", err)
+	}
+	if tr.TrackNo != 5 || tr.ISRC != "GBARL0600242" {
+		t.Errorf("tags en base = track_no:%d isrc:%q, want 5 / GBARL0600242", tr.TrackNo, tr.ISRC)
+	}
+	if tr.DurationMs < 200 || tr.DurationMs > 400 || tr.Bitrate != 128 {
+		t.Errorf("durée/débit en base = %d ms / %d kbps, want ~261 ms / 128 kbps", tr.DurationMs, tr.Bitrate)
 	}
 }
 
