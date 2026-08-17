@@ -1,14 +1,13 @@
 package handler
 
 import (
-	"bytes"
-	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os/exec"
 	"strings"
 
 	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/fastfilter"
+	"soneph-backend/pkg/tags"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,7 +27,8 @@ func isPlaylistLink(url string) bool {
 	return strings.Contains(u, "/playlist/") || strings.Contains(u, "spotify:playlist:")
 }
 
-// resolvedTrack / resolvedMissing sont les formes JSON de playlist_from_url.py.
+// resolvedTrack / resolvedMissing sont les formes JSON historiques de
+// playlist_from_url.py (conservées pour ne pas changer le contrat API).
 type resolvedTrack struct {
 	Title   string `json:"title"`
 	Artist  string `json:"artist"`
@@ -40,31 +40,30 @@ type resolvedMissing struct {
 	Artist string `json:"artist"`
 }
 
-// resolvePlaylistURL interroge playlist_from_url.py (API embed Spotify) :
-// nom de la playlist + morceaux déjà sur disque (matched) + manquants.
+// resolvePlaylistURL résout un lien (playlist/album/track) : nom de la
+// playlist + morceaux déjà sur disque (matched) + manquants. M6 : port Go
+// de playlist_from_url.py — l'API embed est paginée par pkg/fastfilter et
+// la bibliothèque est indexée par URL Spotify (pkg/tags.IdentityMap), sans
+// sous-processus Python.
 func (a *API) resolvePlaylistURL(url string) (name string, matched []resolvedTrack, missing []resolvedMissing, total int, err error) {
-	pythonExec := downloader.GetPythonExec()
-	script := downloader.GetScriptPath("playlist_from_url.py")
-	cmd := exec.Command(pythonExec, script, a.scanner.DownloadDir, strings.TrimSpace(url))
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	output, err := cmd.Output()
-	if err != nil {
-		// Ne plus échouer silencieusement : en app packagée, le script peut
-		// être introuvable (GetScriptPath) ou le Python sans mutagen.
-		slog.Error("resolvePlaylistURL: script failed", "url", url, "script", script, "err", err, "stderr", stderr.String())
-		return "", nil, nil, 0, err
+	identity, ierr := tags.IdentityMap(a.scanner.DownloadDir)
+	if ierr != nil {
+		return "", nil, nil, 0, ierr
 	}
-	var res struct {
-		Name    string            `json:"name"`
-		Matched []resolvedTrack   `json:"matched"`
-		Missing []resolvedMissing `json:"missing"`
-		Total   int               `json:"total"`
+	res, rerr := fastfilter.ResolvePlaylist(strings.TrimSpace(url), nil, identity)
+	if rerr != nil {
+		slog.Error("resolvePlaylistURL: resolution failed", "url", url, "err", rerr)
+		return "", nil, nil, 0, rerr
 	}
-	if err := json.Unmarshal(output, &res); err != nil {
-		return "", nil, nil, 0, err
+	matched = make([]resolvedTrack, 0, len(res.Matched))
+	for _, m := range res.Matched {
+		matched = append(matched, resolvedTrack{Title: m.Title, Artist: m.Artist, RelPath: m.RelPath})
 	}
-	return res.Name, res.Matched, res.Missing, res.Total, nil
+	missing = make([]resolvedMissing, 0, len(res.Missing))
+	for _, m := range res.Missing {
+		missing = append(missing, resolvedMissing{Title: m.Title, Artist: m.Artist})
+	}
+	return res.Name, matched, missing, res.Total, nil
 }
 
 // createPlaylistForURL crée la playlist (morceaux déjà sur disque ajoutés

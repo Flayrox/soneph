@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,6 +206,116 @@ func TestRegisterRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ── M6 : /api/file/details et /api/cover sans Python ────────────────────
+// Le panneau « Plus de détails » lit les tags en Go (pkg/tags) : on vérifie
+// le parcours complet avec un vrai MP3 taggé (fichier + réponse JSON) et
+// l'extraction de pochette (APIC) avec cache.
+
+// buildTaggedMP3Handler écrit un MP3 ID3v2.3 (TIT2/TPE1/TALB/WOAS/TXXX +
+// APIC + frames MPEG 128 kbps) sous downloadDir/<relPath>.
+func buildTaggedMP3Handler(t *testing.T, downloadDir, relPath string) string {
+	t.Helper()
+	text := func(id, s string) []byte {
+		d := append([]byte{0}, []byte(s)...)
+		out := append([]byte(id), byte(len(d)>>24), byte(len(d)>>16), byte(len(d)>>8), byte(len(d)))
+		return append(append(out, 0, 0), d...)
+	}
+	urlF := func(id, s string) []byte {
+		out := append([]byte(id), byte(len(s)>>24), byte(len(s)>>16), byte(len(s)>>8), byte(len(s)))
+		return append(append(out, 0, 0), s...)
+	}
+	txxx := func(desc, val string) []byte {
+		d := append([]byte{0}, []byte(desc)...)
+		d = append(d, 0)
+		d = append(d, []byte(val)...)
+		out := append([]byte("TXXX"), byte(len(d)>>24), byte(len(d)>>16), byte(len(d)>>8), byte(len(d)))
+		return append(append(out, 0, 0), d...)
+	}
+	cover := []byte("\xff\xd8\xff\xe0JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9")
+	apic := append([]byte{0}, []byte("image/jpeg")...)
+	apic = append(apic, 0, 3, 0)
+	apic = append(apic, cover...)
+	apicF := append([]byte("APIC"), byte(len(apic)>>24), byte(len(apic)>>16), byte(len(apic)>>8), byte(len(apic)))
+	apicF = append(append(apicF, 0, 0), apic...)
+
+	var body []byte
+	for _, f := range [][]byte{
+		text("TIT2", "Vrais"),
+		text("TPE1", "Ninho"),
+		text("TALB", "M.I.L.S 2.0"),
+		urlF("WOAS", "https://open.spotify.com/track/aaa"),
+		txxx("SONEPH_SOURCE", "https://open.spotify.com/track/aaa"),
+		apicF,
+	} {
+		body = append(body, f...)
+	}
+	header := []byte{'I', 'D', '3', 3, 0, 0,
+		byte(len(body) >> 21 & 0x7F), byte(len(body) >> 14 & 0x7F), byte(len(body) >> 7 & 0x7F), byte(len(body) & 0x7F)}
+
+	frameLen := 144*128000/44100 - 4
+	var audio []byte
+	for i := 0; i < 40; i++ {
+		audio = append(audio, 0xFF, 0xFB, 0x90, 0x00)
+		audio = append(audio, make([]byte, frameLen)...)
+	}
+
+	full := filepath.Join(downloadDir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(full, append(append(header, body...), audio...), 0o644); err != nil {
+		t.Fatalf("écriture du MP3: %v", err)
+	}
+	return full
+}
+
+func TestFileDetailsAndCoverGo(t *testing.T) {
+	r, api := newTestAPI(t)
+	rel := "Ninho/Vrais.mp3"
+	buildTaggedMP3Handler(t, api.scanner.DownloadDir, rel)
+
+	// ── /api/file/details : JSON complet sans sous-processus Python ──
+	req := httptest.NewRequest(http.MethodGet, "/api/file/details?path="+rel, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("file/details → %d (body: %s)", w.Code, w.Body.String())
+	}
+	var d map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]interface{}{
+		"title":       "Vrais",
+		"artist":      "Ninho",
+		"album":       "M.I.L.S 2.0",
+		"spotify_url": "https://open.spotify.com/track/aaa",
+		"source_url":  "https://open.spotify.com/track/aaa",
+		"bitrate":     "128kbps",
+		"quality":     "128kbps", // pas de SONEPH_QUALITY → bitrate réel
+	} {
+		if d[key] != want {
+			t.Errorf("details[%q] = %#v, want %#v", key, d[key], want)
+		}
+	}
+
+	// ── /api/cover : pochette extraite + cache .covers ──
+	req = httptest.NewRequest(http.MethodGet, "/api/cover?path="+rel, nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("cover → %d (body: %s)", w.Code, w.Body.String())
+	}
+	h := md5.Sum([]byte(rel))
+	cachePath := filepath.Join(api.scanner.DownloadDir, ".covers", hex.EncodeToString(h[:])+".jpg")
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Errorf("cache pochette absent : %v", err)
+	}
+	if len(w.Body.Bytes()) == 0 || w.Body.Bytes()[0] != 0xFF || w.Body.Bytes()[1] != 0xD8 {
+		t.Errorf("corps de la cover inattendu (%d octets)", len(w.Body.Bytes()))
 	}
 }
 

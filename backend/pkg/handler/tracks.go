@@ -3,44 +3,33 @@ package handler
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/tags"
 
 	"github.com/gin-gonic/gin"
 )
 
 // GetFileDetails returns the full ID3 metadata of one file (artists,
 // producers, lyrics source, quality…) for the right-click details panel.
+// M6 : lecture directe en Go (pkg/tags.FileDetails, port de
+// file_details.py) — plus de sous-processus Python.
 func (a *API) GetFileDetails(c *gin.Context) {
 	relPath := c.Query("path")
 	if relPath == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
 		return
 	}
-	if _, err := a.scanner.ResolvePath(relPath); err != nil {
+	fullPath, err := a.scanner.ResolvePath(relPath)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	pythonExec := downloader.GetPythonExec()
-	detailsScript := downloader.GetScriptPath("file_details.py")
-	cmd := exec.Command(pythonExec, detailsScript, a.scanner.DownloadDir, relPath)
-	output, err := cmd.Output()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Impossible de lire les métadonnées du fichier"})
-		return
-	}
-	var details map[string]interface{}
-	if err := json.Unmarshal(output, &details); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Réponse du script illisible"})
-		return
-	}
+	details := tags.FileDetails(fullPath, relPath)
 	if msg, ok := details["error"].(string); ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": msg})
 		return
@@ -89,11 +78,12 @@ func (a *API) GetCover(c *gin.Context) {
 	coverPath := filepath.Join(coverDir, hashStr+".jpg")
 
 	if _, err := os.Stat(coverPath); err != nil {
-		pythonExec := downloader.GetPythonExec()
-		extractScript := downloader.GetScriptPath("extract_cover.py")
-
-		cmd := exec.Command(pythonExec, extractScript, fullPath, coverPath)
-		_ = cmd.Run()
+		// M6 : extraction APIC en Go (pkg/tags.Cover, port de
+		// extract_cover.py) — plus de sous-processus Python.
+		if data, cerr := tags.Cover(fullPath); cerr == nil {
+			_ = os.MkdirAll(coverDir, 0o755)
+			_ = os.WriteFile(coverPath, data, 0o644)
+		}
 	}
 
 	if _, err := os.Stat(coverPath); err == nil {

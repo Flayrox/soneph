@@ -1,18 +1,17 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"soneph-backend/pkg/config"
-	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/fastfilter"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
+	"soneph-backend/pkg/tags"
 
 	"github.com/gin-gonic/gin"
 )
@@ -58,29 +57,16 @@ func (a *API) CreatePlaylistFromURL(c *gin.Context) {
 		return
 	}
 
-	pythonExec := downloader.GetPythonExec()
-	script := downloader.GetScriptPath("playlist_from_url.py")
-	cmd := exec.Command(pythonExec, script, a.scanner.DownloadDir, strings.TrimSpace(req.URL))
-	output, err := cmd.Output()
-	if err != nil {
+	// M6 : résolution en Go (pkg/fastfilter.ResolvePlaylist + carte
+	// d'identité pkg/tags.IdentityMap) — plus de sous-processus Python.
+	identity, ierr := tags.IdentityMap(a.scanner.DownloadDir)
+	if ierr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Impossible de résoudre le lien"})
 		return
 	}
-	var res struct {
-		Name    string `json:"name"`
-		Matched []struct {
-			Title   string `json:"title"`
-			Artist  string `json:"artist"`
-			RelPath string `json:"rel_path"`
-		} `json:"matched"`
-		Missing []struct {
-			Title  string `json:"title"`
-			Artist string `json:"artist"`
-		} `json:"missing"`
-		Total int `json:"total"`
-	}
-	if err := json.Unmarshal(output, &res); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Réponse du script illisible"})
+	res, rerr := fastfilter.ResolvePlaylist(strings.TrimSpace(req.URL), nil, identity)
+	if rerr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Impossible de résoudre le lien"})
 		return
 	}
 	if len(res.Matched) == 0 {

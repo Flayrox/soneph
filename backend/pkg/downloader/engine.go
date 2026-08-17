@@ -15,6 +15,7 @@ import (
 	"soneph-backend/pkg/fastfilter"
 	"soneph-backend/pkg/jobs"
 	"soneph-backend/pkg/store"
+	"soneph-backend/pkg/tags"
 	"sort"
 	"strconv"
 	"strings"
@@ -493,16 +494,12 @@ func (m *Manager) Broadcast(event string, data interface{}) {
 // runScanIdentity lance le scan complet (lecture des tags WOAS de tous les
 // MP3) et renvoie la carte {identité → chemins}. Plusieurs fichiers peuvent
 // partager la même identité (même morceau sur plusieurs albums) : on garde
-// la liste complète.
+// la liste complète. M6 : port Go de scan_identity.py (pkg/tags.IdentityMap)
+// — plus de sous-processus Python.
 func (m *Manager) runScanIdentity() map[string][]string {
-	out := map[string][]string{}
-	cmd := exec.Command(GetPythonExec(), GetScriptPath("scan_identity.py"), m.downloadDir)
-	data, err := cmd.Output()
+	out, err := tags.IdentityMap(m.downloadDir)
 	if err != nil {
-		return out
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out
+		return map[string][]string{}
 	}
 	return out
 }

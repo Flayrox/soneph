@@ -162,12 +162,14 @@ Docker mounts `./downloads` as a volume: your files survive restarts and can be 
 ├── backend/            # Go server (gin) + Python helpers
 │   ├── pkg/
 │   │   ├── downloader/ # spotdl engine (queue, stats, metadata)
+│   │   ├── fastfilter/ # fast filter + playlist resolution (API embed)
 │   │   ├── handler/    # REST API + WebSocket
-│   │   ├── history/    # plays, likes
-│   │   ├── playlists/  # JSON playlists
+│   │   ├── jobs/       # persistent job queue (atomic dequeue, backoff)
+│   │   ├── store/      # SQLite (source de vérité) + migrations
 │   │   ├── storage/    # library scan, duplicates
-│   │   └── syncmgr/    # Apple Music auto-import watcher
-│   ├── *.py            # helpers: ID3 tags, lyrics, identity, playlist…
+│   │   ├── syncmgr/    # Apple Music auto-import watcher
+│   │   └── tags/       # ID3 read in Go (identity map, details, cover)
+│   ├── *.py            # helpers restants : écriture ID3 + paroles (M6 p.2)
 │   └── web/dist/       # compiled frontend (embedded in the Go binary)
 ├── frontend/           # React + Vite + TypeScript UI
 ├── desktop/            # Electron macOS app + build scripts
@@ -177,15 +179,17 @@ Docker mounts `./downloads` as a volume: your files survive restarts and can be 
 
 ### Python helpers (backend/)
 
+> En M5/M6, la plupart des scripts ont été portés en Go : le fast filter et
+> la résolution de playlists (pkg/fastfilter), la carte d'identité WOAS, le
+> dump de détails et l'extraction de pochette (pkg/tags). Il ne reste que
+> ce qui exige un **écrivain** ID3 ou un fournisseur de paroles (M6 part 2).
+
 | Script | Role |
 |---|---|
 | `precreate_dirs.py` | pre-creates album folders (single → album) |
 | `tag_soneph.py` | `TXXX:SONEPH` marker + source + real bitrate |
 | `lyrics_retry.py` | synced lyrics + recorded source |
 | `embed_lyrics.py` | lyrics into ID3 tags (USLT/SYLT) |
-| `scan_identity.py` | Spotify URL (WOAS) → paths map |
-| `playlist_from_url.py` | playlist resolution → present/missing tracks |
-| `file_details.py` | full ID3 metadata dump |
 
 ---
 
