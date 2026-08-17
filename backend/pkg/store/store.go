@@ -60,6 +60,26 @@ type SyncStats struct {
 	Unchanged int `json:"unchanged"`
 }
 
+// Playlist est une playlist (table playlists + playlist_tracks). L'ID
+// exposé est « pl_<n> » : la base utilise des entiers, l'API conserve le
+// format historique pour ne rien changer côté front.
+type Playlist struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Tracks    []string  `json:"tracks"` // rel_paths dans l'ordre
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PlaylistSummary est la forme légère pour la liste (id, nom, nb de pistes).
+type PlaylistSummary struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	TrackCount int       `json:"track_count"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 // Pin est une ligne de la table pins (référence texte — M3).
 type Pin struct {
 	Kind     string    `json:"kind"` // artist/album/playlist
@@ -144,6 +164,15 @@ type Store interface {
 	// Settings (table settings, migration 0002) ─────────────────────
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
+
+	// Playlists (M3 part 2) ──────────────────────────────────────────
+	ListPlaylists() ([]PlaylistSummary, error)
+	CreatePlaylist(name string) (Playlist, error)
+	GetPlaylist(id string) (Playlist, error)
+	DeletePlaylist(id string) error
+	AddPlaylistTrack(id, path string) (Playlist, error)
+	RemovePlaylistTrack(id, path string) (Playlist, error)
+	ReorderPlaylist(id string, paths []string) (Playlist, error)
 
 	// Pins (M3) ─────────────────────────────────────────────────────
 	ListPins() ([]Pin, error)

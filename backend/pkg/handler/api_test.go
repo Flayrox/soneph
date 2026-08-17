@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"soneph-backend/pkg/downloader"
-	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
 	"soneph-backend/pkg/syncmgr"
@@ -60,13 +59,12 @@ func newTestAPI(t *testing.T) (*gin.Engine, *API) {
 	dl := downloader.NewManager(downloadDir, hub.Broadcast)
 	sc := storage.NewScanner(downloadDir)
 	imp := syncmgr.New(downloadDir)
-	pls := playlists.New()
 	st, err := store.Open(filepath.Join(dir, "soneph.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	api := NewAPI(dl, sc, imp, pls, st, hub)
+	api := NewAPI(dl, sc, imp, st, hub)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

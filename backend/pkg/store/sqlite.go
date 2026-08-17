@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -459,6 +460,219 @@ func (s *SQLiteStore) UpdateJobStatus(id, status, errMsg string) error {
 	return nil
 }
 
+// ── Playlists (M3 part 2) ────────────────────────────────────────────────
+
+// parsePlaylistID convertit « pl_<n> » (forme API) en id entier de la base.
+func parsePlaylistID(id string) (int64, error) {
+	if !strings.HasPrefix(id, "pl_") {
+		return 0, ErrNotFound
+	}
+	n, err := strconv.ParseInt(strings.TrimPrefix(id, "pl_"), 10, 64)
+	if err != nil || n <= 0 {
+		return 0, ErrNotFound
+	}
+	return n, nil
+}
+
+func fmtPlaylistID(n int64) string {
+	return "pl_" + strconv.FormatInt(n, 10)
+}
+
+func (s *SQLiteStore) ListPlaylists() ([]PlaylistSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT p.id, p.name, COUNT(pt.track_id), p.created_at, p.updated_at
+		  FROM playlists p
+		  LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+		 GROUP BY p.id
+		 ORDER BY p.updated_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("store: liste des playlists: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]PlaylistSummary, 0, 8)
+	for rows.Next() {
+		var s PlaylistSummary
+		var id int64
+		var created, updated string
+		if err := rows.Scan(&id, &s.Name, &s.TrackCount, &created, &updated); err != nil {
+			return nil, err
+		}
+		s.ID = fmtPlaylistID(id)
+		s.CreatedAt, s.UpdatedAt = parseTime(created), parseTime(updated)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) CreatePlaylist(name string) (Playlist, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Playlist"
+	}
+	res, err := s.db.Exec(`INSERT INTO playlists(name) VALUES(?)`, name)
+	if err != nil {
+		return Playlist{}, fmt.Errorf("store: création de la playlist: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Playlist{}, err
+	}
+	return Playlist{
+		ID:        fmtPlaylistID(id),
+		Name:      name,
+		Tracks:    []string{},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}, nil
+}
+
+func (s *SQLiteStore) GetPlaylist(id string) (Playlist, error) {
+	pid, err := parsePlaylistID(id)
+	if err != nil {
+		return Playlist{}, ErrNotFound
+	}
+	var p Playlist
+	var rowID int64
+	var created, updated string
+	err = s.db.QueryRow(`SELECT id, name, created_at, updated_at FROM playlists WHERE id = ?`, pid).
+		Scan(&rowID, &p.Name, &created, &updated)
+	if err == sql.ErrNoRows {
+		return Playlist{}, ErrNotFound
+	}
+	if err != nil {
+		return Playlist{}, err
+	}
+	p.ID = fmtPlaylistID(rowID)
+	p.CreatedAt, p.UpdatedAt = parseTime(created), parseTime(updated)
+	p.Tracks = []string{}
+
+	rows, err := s.db.Query(`
+		SELECT t.path FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id
+		 WHERE pt.playlist_id = ? ORDER BY pt.position`, pid)
+	if err != nil {
+		return Playlist{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return Playlist{}, err
+		}
+		p.Tracks = append(p.Tracks, path)
+	}
+	return p, rows.Err()
+}
+
+func (s *SQLiteStore) DeletePlaylist(id string) error {
+	pid, err := parsePlaylistID(id)
+	if err != nil {
+		return ErrNotFound
+	}
+	res, err := s.db.Exec(`DELETE FROM playlists WHERE id = ?`, pid)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil // playlist_tracks supprimées par ON DELETE CASCADE
+}
+
+// AddPlaylistTrack ajoute un morceau en fin de playlist (dédoublonné : la PK
+// playlist_id+track_id l'interdit par construction). Retourne la playlist
+// à jour.
+func (s *SQLiteStore) AddPlaylistTrack(id, path string) (Playlist, error) {
+	pid, err := parsePlaylistID(id)
+	if err != nil {
+		return Playlist{}, ErrNotFound
+	}
+	trackID, err := s.ensureTrack(s.db, path)
+	if err != nil {
+		return Playlist{}, err
+	}
+	_, err = s.db.Exec(`
+		INSERT OR IGNORE INTO playlist_tracks(playlist_id, track_id, position)
+		VALUES(?, ?, (SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?))`,
+		pid, trackID, pid)
+	if err != nil {
+		return Playlist{}, fmt.Errorf("store: ajout à la playlist %s: %w", id, err)
+	}
+	return s.GetPlaylist(id)
+}
+
+func (s *SQLiteStore) RemovePlaylistTrack(id, path string) (Playlist, error) {
+	pid, err := parsePlaylistID(id)
+	if err != nil {
+		return Playlist{}, ErrNotFound
+	}
+	_, err = s.db.Exec(`
+		DELETE FROM playlist_tracks
+		 WHERE playlist_id = ? AND track_id = (SELECT id FROM tracks WHERE path = ?)`, pid, path)
+	if err != nil {
+		return Playlist{}, err
+	}
+	return s.GetPlaylist(id)
+}
+
+// ReorderPlaylist remplace l'ordre de la playlist par la liste fournie
+// (drag-and-drop). Même sémantique que l'ancien store JSON : chemins
+// inconnus ignorés, doublons écartés, morceaux non mentionnés conservés en
+// fin (ordre d'origine).
+func (s *SQLiteStore) ReorderPlaylist(id string, paths []string) (Playlist, error) {
+	pid, err := parsePlaylistID(id)
+	if err != nil {
+		return Playlist{}, ErrNotFound
+	}
+	current, err := s.GetPlaylist(id)
+	if err != nil {
+		return Playlist{}, err
+	}
+	known := make(map[string]bool, len(current.Tracks))
+	for _, t := range current.Tracks {
+		known[t] = true
+	}
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, t := range paths {
+		if !known[t] || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	for _, t := range current.Tracks {
+		if !seen[t] {
+			out = append(out, t)
+		}
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Playlist{}, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`DELETE FROM playlist_tracks WHERE playlist_id = ?`, pid); err != nil {
+		return Playlist{}, err
+	}
+	for i, path := range out {
+		trackID, err := s.ensureTrack(tx, path)
+		if err != nil {
+			return Playlist{}, err
+		}
+		if _, err := tx.Exec(`INSERT INTO playlist_tracks(playlist_id, track_id, position) VALUES(?,?,?)`, pid, trackID, i); err != nil {
+			return Playlist{}, err
+		}
+	}
+	if _, err := tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, pid); err != nil {
+		return Playlist{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Playlist{}, err
+	}
+	return s.GetPlaylist(id)
+}
+
 // ── Pins (M3) ─────────────────────────────────────────────────────────────
 
 var validPinKinds = map[string]bool{"artist": true, "album": true, "playlist": true}
@@ -533,12 +747,20 @@ func (s *SQLiteStore) SetPlayerQueue(q PlayerQueue) error {
 
 // ── Likes (M3) ────────────────────────────────────────────────────────────
 
+// rowQuerier est satisfaite par *sql.DB et *sql.Tx : ensureTrack peut
+// s'exécuter dans une transaction (sinon, avec MaxOpenConns(1), la requête
+// sur le pool bloquerait pendant qu'une tx tient la seule connexion).
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // ensureTrack garantit qu'une ligne tracks existe pour un chemin (fichier
 // apparu après le dernier scan) : le prochain rescan l'enrichit. Ligne
 // minimale : path + titre dérivé du nom de fichier.
-func (s *SQLiteStore) ensureTrack(path string) (int64, error) {
+func (s *SQLiteStore) ensureTrack(q rowQuerier, path string) (int64, error) {
 	var id int64
-	err := s.db.QueryRow(`SELECT id FROM tracks WHERE path = ?`, path).Scan(&id)
+	err := q.QueryRow(`SELECT id FROM tracks WHERE path = ?`, path).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
@@ -549,7 +771,7 @@ func (s *SQLiteStore) ensureTrack(path string) (int64, error) {
 	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
 		title = path[i+1:]
 	}
-	res, err := s.db.Exec(`INSERT INTO tracks(path, title) VALUES(?, ?)`, path, title)
+	res, err := q.Exec(`INSERT INTO tracks(path, title) VALUES(?, ?)`, path, title)
 	if err != nil {
 		return 0, fmt.Errorf("store: création du morceau %q: %w", path, err)
 	}
@@ -558,12 +780,12 @@ func (s *SQLiteStore) ensureTrack(path string) (int64, error) {
 		return 0, err
 	}
 	// Index FTS5 (contentless : insertion manuelle) pour rester cohérent.
-	_, err = s.db.Exec(`INSERT INTO tracks_fts(rowid, title, artist, album) VALUES(?,?,?,?)`, id, title, "", "")
+	_, err = q.Exec(`INSERT INTO tracks_fts(rowid, title, artist, album) VALUES(?,?,?,?)`, id, title, "", "")
 	return id, err
 }
 
 func (s *SQLiteStore) LikeTrack(path string) error {
-	id, err := s.ensureTrack(path)
+	id, err := s.ensureTrack(s.db, path)
 	if err != nil {
 		return err
 	}
@@ -599,7 +821,7 @@ func (s *SQLiteStore) ListLikedPaths() ([]string, error) {
 // ── History (M3) ──────────────────────────────────────────────────────────
 
 func (s *SQLiteStore) AddPlay(path string, durationSec int) error {
-	id, err := s.ensureTrack(path)
+	id, err := s.ensureTrack(s.db, path)
 	if err != nil {
 		return err
 	}

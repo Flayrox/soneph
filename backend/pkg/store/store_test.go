@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,8 +65,8 @@ func TestOpenAppliesMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version_id) FROM goose_db_version`).Scan(&version); err != nil {
 		t.Fatalf("goose_db_version: %v", err)
 	}
-	if version != 3 {
-		t.Errorf("version goose = %d, want 3", version)
+	if version != 4 {
+		t.Errorf("version goose = %d, want 4", version)
 	}
 }
 
@@ -347,6 +348,94 @@ func TestJobs(t *testing.T) {
 	// Statut inconnu → ErrNotFound.
 	if err := st.UpdateJobStatus("nope", "done", ""); err != ErrNotFound {
 		t.Errorf("UpdateJobStatus inexistant = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPlaylists(t *testing.T) {
+	st := openTest(t)
+
+	pls, err := st.ListPlaylists()
+	if err != nil || len(pls) != 0 {
+		t.Fatalf("ListPlaylists vide = %v, %v", pls, err)
+	}
+
+	p, err := st.CreatePlaylist("Roadtrip")
+	if err != nil {
+		t.Fatalf("CreatePlaylist: %v", err)
+	}
+	if !strings.HasPrefix(p.ID, "pl_") {
+		t.Errorf("id = %q, want préfixe pl_", p.ID)
+	}
+	// Nom vide → « Playlist » (comportement historique).
+	p2, err := st.CreatePlaylist("   ")
+	if err != nil || p2.Name != "Playlist" {
+		t.Errorf("CreatePlaylist vide = %q, %v; want Playlist", p2.Name, err)
+	}
+
+	// Ajout + dédoublonnage (PK playlist_id+track_id).
+	if _, err := st.AddPlaylistTrack(p.ID, "a.mp3"); err != nil {
+		t.Fatalf("AddPlaylistTrack: %v", err)
+	}
+	if _, err := st.AddPlaylistTrack(p.ID, "b.mp3"); err != nil {
+		t.Fatalf("AddPlaylistTrack: %v", err)
+	}
+	if _, err := st.AddPlaylistTrack(p.ID, "a.mp3"); err != nil {
+		t.Fatalf("AddPlaylistTrack doublon: %v", err)
+	}
+
+	got, err := st.GetPlaylist(p.ID)
+	if err != nil {
+		t.Fatalf("GetPlaylist: %v", err)
+	}
+	if len(got.Tracks) != 2 || got.Tracks[0] != "a.mp3" || got.Tracks[1] != "b.mp3" {
+		t.Errorf("tracks = %v, want [a.mp3 b.mp3]", got.Tracks)
+	}
+
+	// Réordonnancement : b avant a, les deux connus.
+	if _, err := st.ReorderPlaylist(p.ID, []string{"b.mp3", "a.mp3"}); err != nil {
+		t.Fatalf("ReorderPlaylist: %v", err)
+	}
+	got, _ = st.GetPlaylist(p.ID)
+	if len(got.Tracks) != 2 || got.Tracks[0] != "b.mp3" {
+		t.Errorf("après reorder = %v, want [b.mp3 a.mp3]", got.Tracks)
+	}
+
+	// Retrait.
+	if _, err := st.RemovePlaylistTrack(p.ID, "b.mp3"); err != nil {
+		t.Fatalf("RemovePlaylistTrack: %v", err)
+	}
+	got, _ = st.GetPlaylist(p.ID)
+	if len(got.Tracks) != 1 || got.Tracks[0] != "a.mp3" {
+		t.Errorf("après retrait = %v, want [a.mp3]", got.Tracks)
+	}
+
+	// Liste avec compteur.
+	pls, err = st.ListPlaylists()
+	if err != nil || len(pls) != 2 {
+		t.Fatalf("ListPlaylists = %d, %v; want 2", len(pls), err)
+	}
+	counts := map[string]int{}
+	for _, s := range pls {
+		counts[s.ID] = s.TrackCount
+	}
+	if counts[p.ID] != 1 {
+		t.Errorf("track_count de %s = %d, want 1", p.ID, counts[p.ID])
+	}
+
+	// Id introuvable.
+	if _, err := st.GetPlaylist("pl_99999"); err != ErrNotFound {
+		t.Errorf("GetPlaylist inconnue = %v, want ErrNotFound", err)
+	}
+	if err := st.DeletePlaylist("nope"); err != ErrNotFound {
+		t.Errorf("DeletePlaylist inconnue = %v, want ErrNotFound", err)
+	}
+
+	// Suppression (les pistes suivent par CASCADE).
+	if err := st.DeletePlaylist(p.ID); err != nil {
+		t.Fatalf("DeletePlaylist: %v", err)
+	}
+	if _, err := st.GetPlaylist(p.ID); err != ErrNotFound {
+		t.Errorf("GetPlaylist après delete = %v, want ErrNotFound", err)
 	}
 }
 

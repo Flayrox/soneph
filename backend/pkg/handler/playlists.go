@@ -11,15 +11,15 @@ import (
 
 	"soneph-backend/pkg/config"
 	"soneph-backend/pkg/downloader"
-	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/store"
 
 	"github.com/gin-gonic/gin"
 )
 
 // ListPlaylists returns all playlists (id, name, track count).
 func (a *API) ListPlaylists(c *gin.Context) {
-	pls, err := a.playlists.List()
+	pls, err := a.st.ListPlaylists()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -36,7 +36,7 @@ func (a *API) CreatePlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'name' is required."})
 		return
 	}
-	p, err := a.playlists.Create(req.Name)
+	p, err := a.st.CreatePlaylist(req.Name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -95,7 +95,7 @@ func (a *API) CreatePlaylistFromURL(c *gin.Context) {
 	if name == "" {
 		name = res.Name
 	}
-	p, err := a.playlists.Create(name)
+	p, err := a.st.CreatePlaylist(name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -105,7 +105,7 @@ func (a *API) CreatePlaylistFromURL(c *gin.Context) {
 		if _, err := a.scanner.ResolvePath(m.RelPath); err != nil {
 			continue
 		}
-		_, _ = a.playlists.AddTrack(p.ID, m.RelPath)
+		_, _ = a.st.AddPlaylistTrack(p.ID, m.RelPath)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -116,10 +116,10 @@ func (a *API) CreatePlaylistFromURL(c *gin.Context) {
 	})
 }
 
-// DeletePlaylist removes a playlist and its file.
+// DeletePlaylist removes a playlist (et ses pistes, par cascade FK).
 func (a *API) DeletePlaylist(c *gin.Context) {
-	if err := a.playlists.Delete(c.Param("id")); err != nil {
-		if err == playlists.ErrNotFound {
+	if err := a.st.DeletePlaylist(c.Param("id")); err != nil {
+		if err == store.ErrNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
 			return
 		}
@@ -132,7 +132,7 @@ func (a *API) DeletePlaylist(c *gin.Context) {
 // GetPlaylist resolves a playlist's tracks against the scanned library
 // (missing files are skipped).
 func (a *API) GetPlaylist(c *gin.Context) {
-	p, err := a.playlists.Get(c.Param("id"))
+	p, err := a.st.GetPlaylist(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
 		return
@@ -175,9 +175,9 @@ func (a *API) AddPlaylistTrack(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	p, err := a.playlists.AddTrack(c.Param("id"), req.Path)
+	p, err := a.st.AddPlaylistTrack(c.Param("id"), req.Path)
 	if err != nil {
-		if err == playlists.ErrNotFound {
+		if err == store.ErrNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
 			return
 		}
@@ -194,9 +194,9 @@ func (a *API) RemovePlaylistTrack(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
 		return
 	}
-	p, err := a.playlists.RemoveTrack(c.Param("id"), path)
+	p, err := a.st.RemovePlaylistTrack(c.Param("id"), path)
 	if err != nil {
-		if err == playlists.ErrNotFound {
+		if err == store.ErrNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
 			return
 		}
@@ -215,9 +215,9 @@ func (a *API) ReorderPlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body. 'paths' is required."})
 		return
 	}
-	p, err := a.playlists.Reorder(c.Param("id"), req.Paths)
+	p, err := a.st.ReorderPlaylist(c.Param("id"), req.Paths)
 	if err != nil {
-		if err == playlists.ErrNotFound {
+		if err == store.ErrNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Playlist not found"})
 			return
 		}
@@ -255,7 +255,7 @@ func (a *API) ExportPlaylists(c *gin.Context) {
 		byRel[f.RelPath] = f
 	}
 
-	summaries, err := a.playlists.List()
+	summaries, err := a.st.ListPlaylists()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -263,7 +263,7 @@ func (a *API) ExportPlaylists(c *gin.Context) {
 
 	var written []gin.H
 	for _, s := range summaries {
-		pl, err := a.playlists.Get(s.ID)
+		pl, err := a.st.GetPlaylist(s.ID)
 		if err != nil {
 			continue
 		}

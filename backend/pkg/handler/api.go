@@ -6,7 +6,6 @@ import (
 
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
-	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
 	"soneph-backend/pkg/syncmgr"
@@ -19,7 +18,6 @@ type API struct {
 	downloader  *downloader.Manager
 	scanner     *storage.Scanner
 	importer    *syncmgr.Importer
-	playlists   *playlists.Store
 	st          store.Store
 	wsHub       *WSHub
 	lyricsJobMu sync.Mutex
@@ -35,12 +33,11 @@ type API struct {
 
 // NewAPI construit l'API avec ses dépendances et câble les callbacks du
 // moteur de téléchargement (migration des stats, complétion des playlists).
-func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, st store.Store, hub *WSHub) *API {
+func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, st store.Store, hub *WSHub) *API {
 	a := &API{
 		downloader:    dl,
 		scanner:       sc,
 		importer:      imp,
-		playlists:     pls,
 		st:            st,
 		wsHub:         hub,
 		lyricsJob:     &lyricsRetryJob{Status: "idle"},
@@ -66,15 +63,12 @@ func (a *API) migrateMovedStats(moves []downloader.FileMove) {
 // migrateStats ré-attache les stats d'un ancien chemin vers un nouveau
 // (fichier déplacé par le moteur, doublon supprimé, album supprimé…).
 // Depuis M3, likes/history/playlists de la base référencent le track_id :
-// il suffit de déplacer le chemin dans tracks (les FK suivent). Les
-// playlists JSON restent, elles, indexées par chemin — d'où le RenameTrack
-// du store playlists.
+// il suffit de déplacer le chemin dans tracks (les FK suivent partout).
 func (a *API) migrateStats(oldPath, newPath string) {
 	if oldPath == "" || newPath == "" || oldPath == newPath {
 		return
 	}
 	_ = a.st.RenameTrack(oldPath, newPath)
-	a.playlists.RenameTrack(oldPath, newPath)
 }
 
 // RegisterRoutes enregistre toutes les routes /api sur le routeur, protégées

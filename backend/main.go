@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/handler"
-	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
 	"soneph-backend/pkg/syncmgr"
@@ -28,6 +28,83 @@ import (
 //
 //go:embed web/dist
 var webDist embed.FS
+
+// legacyPlaylistFile est la forme JSON d'une playlist pré-M3 (un fichier par
+// playlist dans le dossier playlists).
+type legacyPlaylistFile struct {
+	Name   string   `json:"name"`
+	Tracks []string `json:"tracks"`
+}
+
+// importLegacyPlaylists migre une seule fois les playlists JSON (pré-M3)
+// vers la base. Les pins de playlists qui référencent un ancien id sont
+// réécrits vers le nouvel id. Retourne le nombre de playlists importées.
+func importLegacyPlaylists(st store.Store) int {
+	// Déjà fait, ou des playlists existent déjà en base : rien à faire.
+	if v, _ := st.GetSetting("playlists_migrated"); v == "1" {
+		return 0
+	}
+	if pls, _ := st.ListPlaylists(); len(pls) > 0 {
+		_ = st.SetSetting("playlists_migrated", "1")
+		return 0
+	}
+
+	dir := os.Getenv("SONEPH_PLAYLISTS_DIR")
+	if dir == "" {
+		d, err := os.UserConfigDir()
+		if err != nil {
+			d = "."
+		}
+		dir = filepath.Join(d, "soneph", "playlists")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// Aucun dossier legacy : on marque quand même la migration faite.
+		_ = st.SetSetting("playlists_migrated", "1")
+		return 0
+	}
+
+	idMap := map[string]string{} // ancien id → nouvel id
+	imported := 0
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var pl legacyPlaylistFile
+		if json.Unmarshal(data, &pl) != nil {
+			continue
+		}
+		created, err := st.CreatePlaylist(pl.Name)
+		if err != nil {
+			slog.Warn("import playlist legacy échoué", "file", e.Name(), "err", err)
+			continue
+		}
+		for _, track := range pl.Tracks {
+			_, _ = st.AddPlaylistTrack(created.ID, track)
+		}
+		idMap[strings.TrimSuffix(e.Name(), ".json")] = created.ID
+		imported++
+	}
+
+	// Les pins de playlists pointaient vers les anciens ids : réécriture.
+	if pins, err := st.ListPins(); err == nil {
+		for _, p := range pins {
+			if p.Kind == "playlist" {
+				if newID, ok := idMap[p.Value]; ok && newID != p.Value {
+					_ = st.RemovePin(p.Kind, p.Value)
+					_ = st.AddPin(p.Kind, newID)
+				}
+			}
+		}
+	}
+
+	_ = st.SetSetting("playlists_migrated", "1")
+	return imported
+}
 
 func main() {
 	// Structured logs. Default = text; LOG_FORMAT=json for machines.
@@ -80,7 +157,6 @@ func main() {
 	}
 	scanner := storage.NewScanner(downloadDir)
 	importer := syncmgr.New(downloadDir)
-	playlistStore := playlists.New()
 
 	// SQLite : source de vérité (M2). Migrations goose appliquées à
 	// l'ouverture ; le scan initial (boot) peuple la base — les syncs
@@ -105,8 +181,11 @@ func main() {
 	} else {
 		slog.Warn("scan initial impossible", "err", err)
 	}
+	if imported := importLegacyPlaylists(st); imported > 0 {
+		slog.Info("playlists JSON migrées vers SQLite", "count", imported)
+	}
 
-	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, st, wsHub)
+	api := handler.NewAPI(dlManager, scanner, importer, st, wsHub)
 
 	r := gin.Default()
 

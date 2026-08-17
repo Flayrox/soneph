@@ -79,7 +79,7 @@ func (a *API) createPlaylistForURL(taskID, url string) *gin.H {
 	if name == "" {
 		name = "Playlist"
 	}
-	pl, err := a.playlists.Create(name)
+	pl, err := a.st.CreatePlaylist(name)
 	if err != nil {
 		return nil
 	}
@@ -89,7 +89,7 @@ func (a *API) createPlaylistForURL(taskID, url string) *gin.H {
 		if _, err := a.scanner.ResolvePath(m.RelPath); err != nil {
 			continue
 		}
-		if _, err := a.playlists.AddTrack(pl.ID, m.RelPath); err == nil {
+		if _, err := a.st.AddPlaylistTrack(pl.ID, m.RelPath); err == nil {
 			added++
 		}
 	}
@@ -133,7 +133,7 @@ func (a *API) afterDownload(task *downloader.DownloadTask) {
 			if _, err := a.scanner.ResolvePath(m.RelPath); err != nil {
 				continue
 			}
-			if _, err := a.playlists.AddTrack(playlistID, m.RelPath); err == nil {
+			if _, err := a.st.AddPlaylistTrack(playlistID, m.RelPath); err == nil {
 				added++
 			}
 		}
