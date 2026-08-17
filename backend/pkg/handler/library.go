@@ -3,8 +3,10 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/store"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +48,28 @@ func (a *API) GetLibrary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"count": count, "tracks": tracks})
+}
+
+// Search sert la recherche FTS5 (titre/artiste/album, préfixe) depuis la
+// base. Requête : q (libre), limit (défaut 50).
+func (a *API) Search(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(http.StatusOK, gin.H{"query": "", "tracks": []store.Track{}})
+		return
+	}
+	limit := 50
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	tracks, err := a.st.SearchTracks(q, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"query": q, "tracks": tracks})
 }
 
 // Rescan synchronise la bibliothèque avec le disque : scan delta par mtime

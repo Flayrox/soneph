@@ -72,6 +72,7 @@ func (a *API) StopSync(c *gin.Context) {
 }
 
 // Scrobble records a play event so the Home view can show recent listens.
+// Enregistré en base (table history, M3) — plus de fichier JSON.
 func (a *API) Scrobble(c *gin.Context) {
 	var req struct {
 		Path     string `json:"path"`
@@ -89,13 +90,21 @@ func (a *API) Scrobble(c *gin.Context) {
 	if req.Duration < 0 {
 		req.Duration = 0
 	}
-	a.history.Add(req.Path, req.Duration)
+	if err := a.st.AddPlay(req.Path, req.Duration); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Play recorded"})
 }
 
 // GetStats returns aggregated listening stats for the Stats module.
 func (a *API) GetStats(c *gin.Context) {
-	c.JSON(http.StatusOK, a.history.Stats())
+	st, err := a.st.Stats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, st)
 }
 
 // GetRecentHistory returns the last played tracks, most recent first.
@@ -106,7 +115,11 @@ func (a *API) GetRecentHistory(c *gin.Context) {
 			limit = n
 		}
 	}
-	recs := a.history.Recent(limit)
+	recs, err := a.st.RecentPlays(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"history": recs})
 }
 
@@ -118,12 +131,22 @@ func (a *API) GetTopTracks(c *gin.Context) {
 			limit = n
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"top": a.history.MostPlayed(limit)})
+	top, err := a.st.MostPlayed(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"top": top})
 }
 
 // GetLikes returns the set of liked rel_paths.
 func (a *API) GetLikes(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"likes": a.likes.List()})
+	paths, err := a.st.ListLikedPaths()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"likes": paths})
 }
 
 // AddLike likes a track.
@@ -139,7 +162,7 @@ func (a *API) AddLike(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if _, err := a.likes.Add(req.Path); err != nil {
+	if err := a.st.LikeTrack(req.Path); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -153,7 +176,7 @@ func (a *API) RemoveLike(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Query param 'path' is required"})
 		return
 	}
-	if _, err := a.likes.Remove(path); err != nil {
+	if err := a.st.UnlikeTrack(path); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -10,7 +10,6 @@ import (
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/handler"
-	"soneph-backend/pkg/history"
 	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
@@ -82,8 +81,6 @@ func main() {
 	scanner := storage.NewScanner(downloadDir)
 	importer := syncmgr.New(downloadDir)
 	playlistStore := playlists.New()
-	historyStore := history.New()
-	likesStore := history.NewLikes()
 
 	// SQLite : source de vérité (M2). Migrations goose appliquées à
 	// l'ouverture ; le scan initial (boot) peuple la base — les syncs
@@ -109,7 +106,7 @@ func main() {
 		slog.Warn("scan initial impossible", "err", err)
 	}
 
-	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore, st, wsHub)
+	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, st, wsHub)
 
 	r := gin.Default()
 
@@ -117,7 +114,7 @@ func main() {
 	// Bearer token header, not cookies, so credentials stay disabled.
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:  []string{"*"},
-		AllowMethods:  []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Auth-Token"},
 		ExposeHeaders: []string{"Content-Length"},
 		MaxAge:        12 * time.Hour,

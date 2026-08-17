@@ -6,7 +6,6 @@ import (
 
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
-	"soneph-backend/pkg/history"
 	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
@@ -21,8 +20,6 @@ type API struct {
 	scanner     *storage.Scanner
 	importer    *syncmgr.Importer
 	playlists   *playlists.Store
-	history     *history.Store
-	likes       *history.LikesStore
 	st          store.Store
 	wsHub       *WSHub
 	lyricsJobMu sync.Mutex
@@ -38,14 +35,12 @@ type API struct {
 
 // NewAPI construit l'API avec ses dépendances et câble les callbacks du
 // moteur de téléchargement (migration des stats, complétion des playlists).
-func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, hist *history.Store, likes *history.LikesStore, st store.Store, hub *WSHub) *API {
+func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, st store.Store, hub *WSHub) *API {
 	a := &API{
 		downloader:    dl,
 		scanner:       sc,
 		importer:      imp,
 		playlists:     pls,
-		history:       hist,
-		likes:         likes,
 		st:            st,
 		wsHub:         hub,
 		lyricsJob:     &lyricsRetryJob{Status: "idle"},
@@ -70,12 +65,15 @@ func (a *API) migrateMovedStats(moves []downloader.FileMove) {
 
 // migrateStats ré-attache les stats d'un ancien chemin vers un nouveau
 // (fichier déplacé par le moteur, doublon supprimé, album supprimé…).
+// Depuis M3, likes/history/playlists de la base référencent le track_id :
+// il suffit de déplacer le chemin dans tracks (les FK suivent). Les
+// playlists JSON restent, elles, indexées par chemin — d'où le RenameTrack
+// du store playlists.
 func (a *API) migrateStats(oldPath, newPath string) {
 	if oldPath == "" || newPath == "" || oldPath == newPath {
 		return
 	}
-	a.history.Rename(oldPath, newPath)
-	a.likes.Rename(oldPath, newPath)
+	_ = a.st.RenameTrack(oldPath, newPath)
 	a.playlists.RenameTrack(oldPath, newPath)
 }
 
@@ -92,6 +90,12 @@ func (a *API) RegisterRoutes(r *gin.Engine) {
 		apiGroup.DELETE("/downloads", a.DeleteDownload)
 		apiGroup.GET("/library", a.GetLibrary)
 		apiGroup.POST("/rescan", a.Rescan)
+		apiGroup.GET("/search", a.Search)
+		apiGroup.GET("/pins", a.GetPins)
+		apiGroup.POST("/pins", a.AddPin)
+		apiGroup.DELETE("/pins", a.RemovePin)
+		apiGroup.GET("/queue", a.GetQueue)
+		apiGroup.PUT("/queue", a.SaveQueue)
 		apiGroup.GET("/stream", a.StreamFile)
 		apiGroup.GET("/file/details", a.GetFileDetails)
 		apiGroup.GET("/cover", a.GetCover)

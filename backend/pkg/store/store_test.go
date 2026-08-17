@@ -64,8 +64,8 @@ func TestOpenAppliesMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version_id) FROM goose_db_version`).Scan(&version); err != nil {
 		t.Fatalf("goose_db_version: %v", err)
 	}
-	if version != 2 {
-		t.Errorf("version goose = %d, want 2", version)
+	if version != 3 {
+		t.Errorf("version goose = %d, want 3", version)
 	}
 }
 
@@ -347,6 +347,190 @@ func TestJobs(t *testing.T) {
 	// Statut inconnu → ErrNotFound.
 	if err := st.UpdateJobStatus("nope", "done", ""); err != ErrNotFound {
 		t.Errorf("UpdateJobStatus inexistant = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPins(t *testing.T) {
+	st := openTest(t)
+
+	if _, err := st.ListPins(); err != nil {
+		t.Fatalf("ListPins vide: %v", err)
+	}
+	if err := st.AddPin("artist", "Radiohead"); err != nil {
+		t.Fatalf("AddPin: %v", err)
+	}
+	if err := st.AddPin("album", "OK Computer"); err != nil {
+		t.Fatalf("AddPin: %v", err)
+	}
+	// Idempotent (PK kind+value).
+	if err := st.AddPin("artist", "Radiohead"); err != nil {
+		t.Fatalf("AddPin doublon: %v", err)
+	}
+	// Kind invalide rejeté.
+	if err := st.AddPin("song", "x"); err == nil {
+		t.Errorf("AddPin(kind invalide) devrait échouer")
+	}
+
+	pins, err := st.ListPins()
+	if err != nil {
+		t.Fatalf("ListPins: %v", err)
+	}
+	if len(pins) != 2 {
+		t.Fatalf("ListPins = %d épingles, want 2", len(pins))
+	}
+
+	if err := st.RemovePin("artist", "Radiohead"); err != nil {
+		t.Fatalf("RemovePin: %v", err)
+	}
+	pins, _ = st.ListPins()
+	if len(pins) != 1 {
+		t.Errorf("après RemovePin = %d, want 1", len(pins))
+	}
+}
+
+func TestPlayerQueue(t *testing.T) {
+	st := openTest(t)
+
+	q, err := st.GetPlayerQueue()
+	if err != nil {
+		t.Fatalf("GetPlayerQueue vide: %v", err)
+	}
+	if len(q.Queue) != 0 {
+		t.Errorf("file initiale = %v, want vide", q.Queue)
+	}
+
+	if err := st.SetPlayerQueue(PlayerQueue{Queue: []string{"a.mp3", "b.mp3"}, Index: 1}); err != nil {
+		t.Fatalf("SetPlayerQueue: %v", err)
+	}
+	got, err := st.GetPlayerQueue()
+	if err != nil {
+		t.Fatalf("GetPlayerQueue: %v", err)
+	}
+	if len(got.Queue) != 2 || got.Queue[1] != "b.mp3" || got.Index != 1 {
+		t.Errorf("file = %+v, want [a.mp3 b.mp3] index 1", got)
+	}
+
+	// Index hors bornes → normalisé à 0.
+	if err := st.SetPlayerQueue(PlayerQueue{Queue: []string{"a.mp3"}, Index: 99}); err != nil {
+		t.Fatalf("SetPlayerQueue: %v", err)
+	}
+	got, _ = st.GetPlayerQueue()
+	if got.Index != 0 {
+		t.Errorf("index hors bornes = %d, want 0", got.Index)
+	}
+}
+
+func TestLikes(t *testing.T) {
+	st := openTest(t)
+
+	paths, err := st.ListLikedPaths()
+	if err != nil || len(paths) != 0 {
+		t.Fatalf("ListLikedPaths vide = %v, %v", paths, err)
+	}
+
+	// Like sur un chemin inconnu : la ligne tracks est créée (M3).
+	if err := st.LikeTrack("artists/radiohead/airbag.mp3"); err != nil {
+		t.Fatalf("LikeTrack: %v", err)
+	}
+	if err := st.LikeTrack("artists/radiohead/airbag.mp3"); err != nil {
+		t.Fatalf("LikeTrack doublon: %v", err)
+	}
+	paths, _ = st.ListLikedPaths()
+	if len(paths) != 1 || paths[0] != "artists/radiohead/airbag.mp3" {
+		t.Fatalf("likes = %v, want 1 entrée (pas de doublon)", paths)
+	}
+
+	if err := st.UnlikeTrack("artists/radiohead/airbag.mp3"); err != nil {
+		t.Fatalf("UnlikeTrack: %v", err)
+	}
+	paths, _ = st.ListLikedPaths()
+	if len(paths) != 0 {
+		t.Errorf("après unlike = %v, want vide", paths)
+	}
+}
+
+func TestHistory(t *testing.T) {
+	st := openTest(t)
+
+	if err := st.AddPlay("a.mp3", 180); err != nil {
+		t.Fatalf("AddPlay: %v", err)
+	}
+	if err := st.AddPlay("b.mp3", 60); err != nil {
+		t.Fatalf("AddPlay: %v", err)
+	}
+	// Back-to-back du même morceau : pas de nouvelle ligne, heure rafraîchie.
+	if err := st.AddPlay("b.mp3", 90); err != nil {
+		t.Fatalf("AddPlay back-to-back: %v", err)
+	}
+
+	n, err := st.TotalPlays()
+	if err != nil || n != 2 {
+		t.Errorf("TotalPlays = %d, %v; want 2 (back-to-back dédupliqué)", n, err)
+	}
+
+	recent, err := st.RecentPlays(10)
+	if err != nil {
+		t.Fatalf("RecentPlays: %v", err)
+	}
+	if len(recent) != 2 || recent[0].Path != "b.mp3" {
+		t.Errorf("recent = %+v, want [b.mp3 a.mp3]", recent)
+	}
+
+	top, err := st.MostPlayed(10)
+	if err != nil {
+		t.Fatalf("MostPlayed: %v", err)
+	}
+	// Le back-to-back a dédupliqué b.mp3 : chaque morceau compte 1 écoute.
+	got := map[string]int{}
+	for _, c := range top {
+		got[c.Path] = c.Plays
+	}
+	if len(got) != 2 || got["a.mp3"] != 1 || got["b.mp3"] != 1 {
+		t.Errorf("top = %+v, want a.mp3 et b.mp3 à 1 écoute chacun", top)
+	}
+
+	stats, err := st.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.TotalPlays != 2 {
+		t.Errorf("Stats.TotalPlays = %d, want 2", stats.TotalPlays)
+	}
+	if stats.TotalSeconds != 270 { // 180 + 90 (dernière valeur de b)
+		t.Errorf("Stats.TotalSeconds = %d, want 270", stats.TotalSeconds)
+	}
+	if len(stats.PlaysByDay) != 14 {
+		t.Errorf("PlaysByDay = %d jours, want 14", len(stats.PlaysByDay))
+	}
+}
+
+func TestRenameTrack(t *testing.T) {
+	st := openTest(t)
+
+	if err := st.LikeTrack("single/song.mp3"); err != nil {
+		t.Fatalf("LikeTrack: %v", err)
+	}
+	if err := st.AddPlay("single/song.mp3", 120); err != nil {
+		t.Fatalf("AddPlay: %v", err)
+	}
+
+	// Le moteur déplace single → album : le chemin change, le track_id non.
+	if err := st.RenameTrack("single/song.mp3", "album/song.mp3"); err != nil {
+		t.Fatalf("RenameTrack: %v", err)
+	}
+
+	paths, err := st.ListLikedPaths()
+	if err != nil || len(paths) != 1 || paths[0] != "album/song.mp3" {
+		t.Errorf("likes après rename = %v, %v; want [album/song.mp3]", paths, err)
+	}
+	recent, err := st.RecentPlays(10)
+	if err != nil || len(recent) != 1 || recent[0].Path != "album/song.mp3" {
+		t.Errorf("history après rename = %v, %v; want [album/song.mp3]", recent, err)
+	}
+
+	// Idempotent : même chemin → no-op.
+	if err := st.RenameTrack("x.mp3", "x.mp3"); err != nil {
+		t.Errorf("RenameTrack no-op: %v", err)
 	}
 }
 

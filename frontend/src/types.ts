@@ -55,3 +55,23 @@ export interface TopTrack {
   path: string;
   plays: number;
 }
+
+/** Résultat de GET /api/search — forme JSON d'une ligne de la table tracks. */
+export interface SearchTrack {
+  id: number;
+  path: string;
+  title: string;
+  artist?: string;
+  album?: string;
+  track_no?: number;
+  duration_ms?: number;
+  bitrate?: number;
+  format?: string;
+  size_bytes?: number;
+  isrc?: string;
+  lyrics_path?: string;
+  lyrics_synced?: boolean;
+  quality_score?: number;
+  added_at: string;
+  updated_at: string;
+}

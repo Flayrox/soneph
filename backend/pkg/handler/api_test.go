@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"soneph-backend/pkg/downloader"
-	"soneph-backend/pkg/history"
 	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
@@ -62,14 +61,12 @@ func newTestAPI(t *testing.T) (*gin.Engine, *API) {
 	sc := storage.NewScanner(downloadDir)
 	imp := syncmgr.New(downloadDir)
 	pls := playlists.New()
-	hist := history.New()
-	likes := history.NewLikes()
 	st, err := store.Open(filepath.Join(dir, "soneph.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	api := NewAPI(dl, sc, imp, pls, hist, likes, st, hub)
+	api := NewAPI(dl, sc, imp, pls, st, hub)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -99,6 +96,8 @@ func TestRegisterRoutes(t *testing.T) {
 		{"downloads - bibliothèque vide", http.MethodGet, "/api/downloads", "", http.StatusOK, []string{"files"}},
 		{"library - base vide", http.MethodGet, "/api/library", "", http.StatusOK, []string{"count", "tracks"}},
 		{"rescan - base vide", http.MethodPost, "/api/rescan", "", http.StatusOK, []string{"stats"}},
+		{"search sans q", http.MethodGet, "/api/search", "", http.StatusOK, []string{"query", "tracks"}},
+		{"search avec q", http.MethodGet, "/api/search?q=airbag", "", http.StatusOK, []string{"query", "tracks"}},
 		{"delete download sans path", http.MethodDelete, "/api/downloads", "", http.StatusBadRequest, nil},
 		// Quirk existant : DeleteDownload ne mappe pas ErrInvalidPath sur 400
 		// (contrairement aux autres handlers) — le test fige le comportement actuel.
@@ -147,6 +146,16 @@ func TestRegisterRoutes(t *testing.T) {
 		{"like sans path", http.MethodPost, "/api/likes", `{}`, http.StatusBadRequest, nil},
 		{"unlike sans path", http.MethodDelete, "/api/likes", "", http.StatusBadRequest, nil},
 		{"unlike", http.MethodDelete, "/api/likes?path=a.mp3", "", http.StatusOK, []string{"message"}},
+
+		// ── pins / queue (M3) ────────────────────────────────────────
+		{"pins - liste vide", http.MethodGet, "/api/pins", "", http.StatusOK, []string{"pins"}},
+		{"pin ajouté", http.MethodPost, "/api/pins", `{"kind":"artist","value":"Radiohead"}`, http.StatusCreated, []string{"message"}},
+		{"pin kind invalide", http.MethodPost, "/api/pins", `{"kind":"song","value":"x"}`, http.StatusBadRequest, nil},
+		{"pin sans value", http.MethodPost, "/api/pins", `{"kind":"artist"}`, http.StatusBadRequest, nil},
+		{"unpin sans params", http.MethodDelete, "/api/pins", "", http.StatusBadRequest, nil},
+		{"unpin", http.MethodDelete, "/api/pins?kind=artist&value=Radiohead", "", http.StatusOK, []string{"message"}},
+		{"queue - vide", http.MethodGet, "/api/queue", "", http.StatusOK, []string{"queue", "index"}},
+		{"queue enregistrée", http.MethodPut, "/api/queue", `{"queue":["a.mp3","b.mp3"],"index":1}`, http.StatusOK, []string{"message"}},
 
 		// ── sync ─────────────────────────────────────────────────────
 		{"sync/status", http.MethodGet, "/api/sync/status", "", http.StatusOK, []string{"platform", "downloads_dir"}},

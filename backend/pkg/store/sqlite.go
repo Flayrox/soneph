@@ -3,10 +3,12 @@ package store
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -454,5 +456,311 @@ func (s *SQLiteStore) UpdateJobStatus(id, status, errMsg string) error {
 		return ErrNotFound
 	}
 	slog.Debug("job mis à jour", "id", id, "status", status)
+	return nil
+}
+
+// ── Pins (M3) ─────────────────────────────────────────────────────────────
+
+var validPinKinds = map[string]bool{"artist": true, "album": true, "playlist": true}
+
+func (s *SQLiteStore) ListPins() ([]Pin, error) {
+	rows, err := s.db.Query(`SELECT kind, value, pinned_at FROM pins ORDER BY pinned_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("store: liste des épingles: %w", err)
+	}
+	defer rows.Close()
+
+	pins := make([]Pin, 0, 8)
+	for rows.Next() {
+		var p Pin
+		var pinnedAt string
+		if err := rows.Scan(&p.Kind, &p.Value, &pinnedAt); err != nil {
+			return nil, err
+		}
+		p.PinnedAt = parseTime(pinnedAt)
+		pins = append(pins, p)
+	}
+	return pins, rows.Err()
+}
+
+func (s *SQLiteStore) AddPin(kind, value string) error {
+	if !validPinKinds[kind] {
+		return fmt.Errorf("kind invalide : %q (attendu artist/album/playlist)", kind)
+	}
+	if value == "" {
+		return errors.New("value requise")
+	}
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO pins(kind, value) VALUES(?, ?)`, kind, value)
+	return err
+}
+
+func (s *SQLiteStore) RemovePin(kind, value string) error {
+	_, err := s.db.Exec(`DELETE FROM pins WHERE kind = ? AND value = ?`, kind, value)
+	return err
+}
+
+// ── Player queue (M3) ─────────────────────────────────────────────────────
+
+func (s *SQLiteStore) GetPlayerQueue() (PlayerQueue, error) {
+	raw, err := s.GetSetting("player_queue")
+	if err != nil {
+		if err == ErrNotFound {
+			return PlayerQueue{Queue: []string{}}, nil
+		}
+		return PlayerQueue{}, err
+	}
+	var q PlayerQueue
+	if err := json.Unmarshal([]byte(raw), &q); err != nil || q.Queue == nil {
+		// Donnée corrompue ou absente → file vide plutôt qu'une erreur.
+		return PlayerQueue{Queue: []string{}}, nil
+	}
+	return q, nil
+}
+
+func (s *SQLiteStore) SetPlayerQueue(q PlayerQueue) error {
+	if q.Queue == nil {
+		q.Queue = []string{}
+	}
+	if q.Index < 0 || q.Index >= len(q.Queue) {
+		q.Index = 0
+	}
+	data, err := json.Marshal(q)
+	if err != nil {
+		return fmt.Errorf("store: sérialisation de la file: %w", err)
+	}
+	return s.SetSetting("player_queue", string(data))
+}
+
+// ── Likes (M3) ────────────────────────────────────────────────────────────
+
+// ensureTrack garantit qu'une ligne tracks existe pour un chemin (fichier
+// apparu après le dernier scan) : le prochain rescan l'enrichit. Ligne
+// minimale : path + titre dérivé du nom de fichier.
+func (s *SQLiteStore) ensureTrack(path string) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM tracks WHERE path = ?`, path).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+	title := path
+	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
+		title = path[i+1:]
+	}
+	res, err := s.db.Exec(`INSERT INTO tracks(path, title) VALUES(?, ?)`, path, title)
+	if err != nil {
+		return 0, fmt.Errorf("store: création du morceau %q: %w", path, err)
+	}
+	id, err = res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	// Index FTS5 (contentless : insertion manuelle) pour rester cohérent.
+	_, err = s.db.Exec(`INSERT INTO tracks_fts(rowid, title, artist, album) VALUES(?,?,?,?)`, id, title, "", "")
+	return id, err
+}
+
+func (s *SQLiteStore) LikeTrack(path string) error {
+	id, err := s.ensureTrack(path)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT OR IGNORE INTO likes(track_id) VALUES(?)`, id)
+	return err
+}
+
+func (s *SQLiteStore) UnlikeTrack(path string) error {
+	_, err := s.db.Exec(`DELETE FROM likes WHERE track_id = (SELECT id FROM tracks WHERE path = ?)`, path)
+	return err
+}
+
+func (s *SQLiteStore) ListLikedPaths() ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT t.path FROM likes l JOIN tracks t ON t.id = l.track_id
+		 ORDER BY l.liked_at DESC, t.path`)
+	if err != nil {
+		return nil, fmt.Errorf("store: liste des likes: %w", err)
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, rows.Err()
+}
+
+// ── History (M3) ──────────────────────────────────────────────────────────
+
+func (s *SQLiteStore) AddPlay(path string, durationSec int) error {
+	id, err := s.ensureTrack(path)
+	if err != nil {
+		return err
+	}
+	ms := durationSec * 1000
+	if durationSec <= 0 {
+		ms = 0
+	}
+	// Écoute back-to-back du même morceau : on rafraîchit la dernière ligne
+	// au lieu d'en insérer une nouvelle (même comportement que l'ancien
+	// store JSON, pour ne pas polluer l'historique).
+	var lastTrack int64
+	err = s.db.QueryRow(`SELECT track_id FROM history ORDER BY played_at DESC, id DESC LIMIT 1`).Scan(&lastTrack)
+	if err == nil && lastTrack == id {
+		_, err = s.db.Exec(`
+			UPDATE history SET played_at = CURRENT_TIMESTAMP, ms_played = ?
+			 WHERE id = (SELECT id FROM history ORDER BY played_at DESC, id DESC LIMIT 1)`, ms)
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO history(track_id, ms_played) VALUES(?, ?)`, id, ms)
+	if err != nil {
+		return fmt.Errorf("store: enregistrement de l'écoute %q: %w", path, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) RecentPlays(limit int) ([]PlayRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`
+		SELECT t.path, h.played_at, h.ms_played
+		  FROM history h JOIN tracks t ON t.id = h.track_id
+		 ORDER BY h.played_at DESC, h.id DESC
+		 LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: historique récent: %w", err)
+	}
+	defer rows.Close()
+
+	recs := make([]PlayRecord, 0, limit)
+	for rows.Next() {
+		var r PlayRecord
+		var playedAt string
+		if err := rows.Scan(&r.Path, &playedAt, &r.Duration); err != nil {
+			return nil, err
+		}
+		r.Duration /= 1000 // ms_played → secondes (forme API historique)
+		r.PlayedAt = parseTime(playedAt)
+		recs = append(recs, r)
+	}
+	return recs, rows.Err()
+}
+
+func (s *SQLiteStore) MostPlayed(limit int) ([]Count, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.Query(`
+		SELECT t.path, COUNT(*) AS plays
+		  FROM history h JOIN tracks t ON t.id = h.track_id
+		 GROUP BY t.path ORDER BY plays DESC, t.path LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: top morceaux: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Count, 0, limit)
+	for rows.Next() {
+		var c Count
+		if err := rows.Scan(&c.Path, &c.Plays); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) TotalPlays() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM history`).Scan(&n)
+	return n, err
+}
+
+// Stats reproduit l'agrégation de l'ancien store JSON : artiste = premier
+// segment du chemin relatif, fenêtre de 14 jours pour le graphique.
+func (s *SQLiteStore) Stats() (Stats, error) {
+	rows, err := s.db.Query(`
+		SELECT t.path, h.ms_played, h.played_at
+		  FROM history h JOIN tracks t ON t.id = h.track_id`)
+	if err != nil {
+		return Stats{}, fmt.Errorf("store: stats: %w", err)
+	}
+	defer rows.Close()
+
+	st := Stats{}
+	artists := map[string]int{}
+	days := map[string]int{}
+	now := time.Now()
+
+	for rows.Next() {
+		var path string
+		var ms int
+		var playedAt string
+		if err := rows.Scan(&path, &ms, &playedAt); err != nil {
+			return Stats{}, err
+		}
+		st.TotalPlays++
+		st.TotalSeconds += ms / 1000
+
+		// artiste = premier segment du layout {artiste}/{album}/{titre}.
+		if i := strings.IndexAny(path, `/\`); i > 0 {
+			artists[path[:i]]++
+		}
+
+		t := parseTime(playedAt)
+		day := t.Format("2006-01-02")
+		if diff := now.Sub(t); diff >= 0 && diff <= 14*24*time.Hour {
+			days[day]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return Stats{}, err
+	}
+
+	for a, c := range artists {
+		st.TopArtists = append(st.TopArtists, ArtistCount{Artist: a, Plays: c})
+	}
+	sort.Slice(st.TopArtists, func(i, j int) bool {
+		if st.TopArtists[i].Plays == st.TopArtists[j].Plays {
+			return st.TopArtists[i].Artist < st.TopArtists[j].Artist
+		}
+		return st.TopArtists[i].Plays > st.TopArtists[j].Plays
+	})
+	if len(st.TopArtists) > 10 {
+		st.TopArtists = st.TopArtists[:10]
+	}
+
+	st.TopTracks, err = s.MostPlayed(10)
+	if err != nil {
+		return Stats{}, err
+	}
+
+	// 14 jours pleins pour un graphique continu (0 les jours calmes).
+	for i := 13; i >= 0; i-- {
+		d := now.AddDate(0, 0, -i).Format("2006-01-02")
+		st.PlaysByDay = append(st.PlaysByDay, DayCount{Day: d, Plays: days[d]})
+	}
+	return st, nil
+}
+
+// RenameTrack déplace un chemin de morceau. Les likes/history/playlists de
+// la base référencent le track_id : rien d'autre à migrer — c'est l'intérêt
+// des FK par rapport aux stores JSON (migrateStats du handler devient un
+// simple UPDATE).
+func (s *SQLiteStore) RenameTrack(oldPath, newPath string) error {
+	if oldPath == "" || newPath == "" || oldPath == newPath {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE tracks SET path = ? WHERE path = ?`, newPath, oldPath)
+	if err != nil {
+		return fmt.Errorf("store: déplacement %q → %q: %w", oldPath, newPath, err)
+	}
 	return nil
 }

@@ -60,6 +60,56 @@ type SyncStats struct {
 	Unchanged int `json:"unchanged"`
 }
 
+// Pin est une ligne de la table pins (référence texte — M3).
+type Pin struct {
+	Kind     string    `json:"kind"` // artist/album/playlist
+	Value    string    `json:"value"`
+	PinnedAt time.Time `json:"pinned_at,omitempty"`
+}
+
+// PlayerQueue est l'état persistant de la file de lecture (M3) : ordre des
+// rel_paths + index courant. Stocké en JSON dans la table settings.
+type PlayerQueue struct {
+	Queue []string `json:"queue"`
+	Index int      `json:"index"`
+}
+
+// PlayRecord est une écoute enregistrée (table history).
+type PlayRecord struct {
+	Path     string    `json:"path"`
+	PlayedAt time.Time `json:"played_at"`
+	Duration int       `json:"duration"` // secondes (ms_played/1000)
+}
+
+// Count est un agrégat de lecture (morceau le plus écouté).
+type Count struct {
+	Path  string `json:"path"`
+	Plays int    `json:"plays"`
+}
+
+// ArtistCount / DayCount sont les agrégats du Stats (même forme que
+// l'ancien store JSON, pour ne rien changer côté front).
+type ArtistCount struct {
+	Artist string `json:"artist"`
+	Plays  int    `json:"plays"`
+}
+
+type DayCount struct {
+	Day   string `json:"day"` // YYYY-MM-DD
+	Plays int    `json:"plays"`
+}
+
+// Stats agrège toute l'historique : total d'écoutes, temps d'écoute,
+// top artistes (segment de dossier), top morceaux et écoutes par jour
+// sur les 14 derniers jours.
+type Stats struct {
+	TotalPlays   int           `json:"total_plays"`
+	TotalSeconds int           `json:"total_seconds"`
+	TopArtists   []ArtistCount `json:"top_artists"`
+	TopTracks    []Count       `json:"top_tracks"`
+	PlaysByDay   []DayCount    `json:"plays_by_day"`
+}
+
 // Job est la forme JSON d'une ligne de la table jobs (file de tâches, M4).
 type Job struct {
 	ID          string     `json:"id"`
@@ -94,6 +144,31 @@ type Store interface {
 	// Settings (table settings, migration 0002) ─────────────────────
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
+
+	// Pins (M3) ─────────────────────────────────────────────────────
+	ListPins() ([]Pin, error)
+	AddPin(kind, value string) error
+	RemovePin(kind, value string) error
+
+	// Player queue (M3) ─────────────────────────────────────────────
+	GetPlayerQueue() (PlayerQueue, error)
+	SetPlayerQueue(q PlayerQueue) error
+
+	// Likes (table likes, join tracks) ──────────────────────────────
+	LikeTrack(path string) error
+	UnlikeTrack(path string) error
+	ListLikedPaths() ([]string, error)
+
+	// History (table history, join tracks) ──────────────────────────
+	AddPlay(path string, durationSec int) error
+	RecentPlays(limit int) ([]PlayRecord, error)
+	MostPlayed(limit int) ([]Count, error)
+	TotalPlays() (int, error)
+	Stats() (Stats, error)
+
+	// RenameTrack déplace un chemin (single → album, doublon supprimé) :
+	// les likes/history/playlists en base suivent via le track_id.
+	RenameTrack(oldPath, newPath string) error
 
 	// Jobs (file de tâches persistante, M4) ─────────────────────────
 	CreateJob(j Job) error

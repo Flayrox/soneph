@@ -25,6 +25,7 @@ import type {
   HistoryRecord,
   Playlist,
   PlaylistSummary,
+  SearchTrack,
   TopTrack,
 } from "@/types";
 
@@ -35,6 +36,23 @@ const API_URL = "/api";
 const WS_URL = "/api/ws";
 
 const jsonHeaders = { "Content-Type": "application/json" };
+
+// Convertit un résultat de recherche FTS (ligne de la table tracks) en
+// DownloadedFile pour les vues existantes de l'app.
+function trackToFile(t: SearchTrack): DownloadedFile {
+  const lyricsSynced = !!t.lyrics_synced;
+  return {
+    rel_path: t.path,
+    file_name: t.path.split("/").pop(),
+    title: t.title,
+    artist: t.artist || "Unknown Artist",
+    album: t.album || "Unknown Album",
+    size_bytes: t.size_bytes,
+    lyrics_type: lyricsSynced ? "synced" : t.lyrics_path ? "unsynced" : "none",
+    has_lyrics: !!t.lyrics_path || lyricsSynced,
+    mod_time: t.updated_at || t.added_at,
+  };
+}
 
 export default function App() {
   const { t } = useI18n();
@@ -74,10 +92,10 @@ export default function App() {
   const shuffleOrderRef = useRef<number[]>([]);
   const [shuffle, setShuffle] = useState<boolean>(false);
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off");
-  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
-  // Bumped on every queue mutation so the Player re-renders with the new queue.
-  const [queueTick, setQueueTick] = useState<number>(0);
-  const QUEUE_STORAGE_KEY = "soneph_queue_v1";
+  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);	// Bumped on every queue mutation so the Player re-renders with the new queue.
+	const [queueTick, setQueueTick] = useState<number>(0);
+	// Ancienne clé localStorage (pré-M3) — utilisée pour la migration one-shot.
+	const QUEUE_STORAGE_KEY = "soneph_queue_v1";
 
   // Display queue: resolve paths to files (recomputed each render).
   const queueTracks = useMemo(() => {
@@ -210,56 +228,97 @@ export default function App() {
 
   // True once the initial restore has run — until then, never persist an
   // (empty) queue, or it would clobber the saved one on first mount.
-  const restoredQueueRef = useRef(false);
+  const restoredQueueRef = useRef(false);	// Restore the saved queue once the library has loaded. Depuis M3, la
+	// source de vérité est le serveur (GET /api/queue) ; le localStorage
+	// pré-M3 est migré une seule fois s'il reste des chemins valides.
+	useEffect(() => {
+		if (restoredQueueRef.current || files.length === 0) return;
+		restoredQueueRef.current = true;
+		const validPaths = new Set(files.map((f) => f.rel_path));
+		void (async () => {
+			let queue: string[] = [];
+			let index = 0;
+			try {
+				const res = await apiFetch(`${getApiUrl()}/queue`);
+				if (res.ok) {
+					const parsed = await res.json();
+					if (Array.isArray(parsed.queue)) {
+						queue = parsed.queue.filter(
+							(p: unknown) => typeof p === "string" && validPaths.has(p)
+						);
+						index =
+							typeof parsed.index === "number" &&
+							parsed.index >= 0 &&
+							parsed.index < queue.length
+								? parsed.index
+								: 0;
+					}
+				}
+			} catch {
+				// hors-ligne : on retombe sur la copie locale pré-M3
+			}
 
-  // Restore the saved queue once the library has loaded.
-  useEffect(() => {
-    if (restoredQueueRef.current || files.length === 0) return;
-    restoredQueueRef.current = true;
-    try {
-      const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.queue) && parsed.queue.length > 0) {
-          // Drop paths that no longer exist in the library.
-          const validPaths = new Set(files.map((f) => f.rel_path));
-          const queue = parsed.queue.filter(
-            (p: unknown) => typeof p === "string" && validPaths.has(p)
-          );
-          if (queue.length > 0) {
-            queueRef.current = queue;
-            const idx =
-              typeof parsed.index === "number" &&
-              parsed.index >= 0 &&
-              parsed.index < queue.length
-                ? parsed.index
-                : 0;
-            queueIndexRef.current = idx;
-          }
-        }
-      }
-    } catch {
-      // Corrupted storage — ignore.
-    }
-    // Always bump so the (possibly restored) queue gets persisted correctly.
-    setQueueTick((v) => v + 1);
-  }, [files]);
+			// Migration one-shot : serveur vide, localStorage plein.
+			let legacy: { queue: unknown; index: unknown } | null = null;
+			try {
+				const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
+				if (raw) legacy = JSON.parse(raw);
+			} catch {
+				legacy = null;
+			}
+			const legacyQueue = Array.isArray(legacy?.queue)
+				? (legacy.queue as unknown[]).filter(
+						(p: unknown) => typeof p === "string" && validPaths.has(p)
+					)
+				: [];
+			if (queue.length === 0 && legacyQueue.length > 0) {
+				queue = legacyQueue as string[];
+				index =
+					typeof legacy?.index === "number" &&
+					legacy.index >= 0 &&
+					legacy.index < queue.length
+						? legacy.index
+						: 0;
+				try {
+					window.localStorage.removeItem(QUEUE_STORAGE_KEY);
+				} catch {
+					// storage indisponible — sans effet
+				}
+			}
 
-  // Persist the playback queue to localStorage on every mutation.
-  useEffect(() => {
-    if (!restoredQueueRef.current) return;
-    try {
-      window.localStorage.setItem(
-        QUEUE_STORAGE_KEY,
-        JSON.stringify({
-          queue: queueRef.current,
-          index: queueIndexRef.current,
-        })
-      );
-    } catch {
-      // storage unavailable — queue stays in-memory
-    }
-  }, [queueTick]);
+			if (queue.length > 0) {
+				queueRef.current = queue;
+				queueIndexRef.current = index;
+			}
+			// Toujours bump pour que la file (éventuellement restaurée) soit
+			// repersistée côté serveur correctement.
+			setQueueTick((v) => v + 1);
+		})();
+	}, [files]);
+
+	// Persist the playback queue to the server on every mutation — débouncé
+	// (500 ms) pour ne pas envoyer un PUT par avance de piste. La file reste
+	// en mémoire comme cache optimiste ; le serveur est la source de vérité.
+	useEffect(() => {
+		if (!restoredQueueRef.current) return;
+		const timer = window.setTimeout(() => {
+			void (async () => {
+				try {
+					await apiFetch(`${getApiUrl()}/queue`, {
+						method: "PUT",
+						headers: jsonHeaders,
+						body: JSON.stringify({
+							queue: queueRef.current,
+							index: queueIndexRef.current,
+						}),
+					});
+				} catch {
+					// hors-ligne : la file reste en mémoire, resync au prochain tick
+				}
+			})();
+		}, 500);
+		return () => window.clearTimeout(timer);
+	}, [queueTick]);
 
   // Connect WebSockets
   useEffect(() => {
@@ -539,15 +598,49 @@ export default function App() {
   };
 
   // ── Playback ────────────────────────────────────────────────────────────
+
+  // Recherche serveur (FTS5) : résultats débouncés via /api/search. Le filtre
+  // client reste le repli instantané pendant la frappe ou hors-ligne.
+  const [searchResults, setSearchResults] = useState<DownloadedFile[] | null>(null);
+  const searchSeqRef = useRef(0);
+
+  useEffect(() => {
+    const q = activeFilter.trim();
+    if (!q) {
+      searchSeqRef.current++;
+      setSearchResults(null);
+      return;
+    }
+    const seq = ++searchSeqRef.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await apiFetch(`${getApiUrl()}/search?q=${encodeURIComponent(q)}&limit=100`);
+          if (res.ok) {
+            const data = await res.json();
+            const mapped = (data.tracks || []).map(trackToFile);
+            // Ne garde que la réponse la plus récente (ignore les retards).
+            if (seq === searchSeqRef.current) setSearchResults(mapped);
+          }
+        } catch {
+          // Hors-ligne / erreur serveur : le filtre client prend le relais.
+        }
+      })();
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [activeFilter]);
+
   const filteredFiles = useMemo(() => {
-    const list = files.filter(
+    // Résultats FTS du serveur quand disponibles, sinon filtre client.
+    if (searchResults !== null) return searchResults;
+    const q = activeFilter.toLowerCase();
+    return files.filter(
       (f) =>
-        f.title.toLowerCase().includes(activeFilter.toLowerCase()) ||
-        f.artist.toLowerCase().includes(activeFilter.toLowerCase()) ||
-        f.album.toLowerCase().includes(activeFilter.toLowerCase())
+        f.title.toLowerCase().includes(q) ||
+        f.artist.toLowerCase().includes(q) ||
+        f.album.toLowerCase().includes(q)
     );
-    return list;
-  }, [files, activeFilter]);
+  }, [files, activeFilter, searchResults]);
 
   // Resolve history/likes paths against the scanned library (missing files skipped).
   const byPath = useMemo(() => {
