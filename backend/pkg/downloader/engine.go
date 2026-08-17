@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -621,14 +622,24 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// dossiers d'album cibles pour que le déplacement du moteur ne rate pas
 	// (spotdl ne crée pas le parent avant son Path.replace). Calculé avec les
 	// mêmes fonctions que spotdl, donc les chemins correspondent exactement.
-	// On saute uniquement quand le fast filter a prouvé qu'aucun morceau de
-	// l'URL n'est sur disque ; sinon (URL non résolue, track seul…) on lance
-	// quand même, le coût est juste une récupération de métadonnées.
-	skipPrecreate := ffErr == nil && ffResult.FastFilterApplied && ffResult.AlreadyDownloaded == 0
-	if !skipPrecreate {
+	//
+	// ⚠️ Ce script résout l'URL via l'API Spotify (client anonyme), qui est
+	// lente et rate-limitée : sur une grosse playlist, il bloquait le worker
+	// pendant des dizaines de minutes AVANT même de lancer spotdl (et après
+	// un redémarrage, ses processus orphelins s'accumulaient). On ne le lance
+	// donc que quand le fast filter prouve que des morceaux de l'URL sont
+	// déjà sur disque (cas single → album) ET que la liste est petite, et on
+	// le borne à 30 s pour ne jamais bloquer la file.
+	runPrecreate := ffErr == nil && ffResult.FastFilterApplied &&
+		ffResult.AlreadyDownloaded > 0 &&
+		ffResult.TotalTracks > 0 && ffResult.TotalTracks <= 200
+	if runPrecreate {
 		precreateScript := GetScriptPath("precreate_dirs.py")
-		pcCmd := exec.Command(pythonExec, precreateScript, m.downloadDir, outputTemplate, task.URL)
-		if pcOut, pcErr := pcCmd.CombinedOutput(); pcErr == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		pcCmd := exec.CommandContext(ctx, pythonExec, precreateScript, m.downloadDir, outputTemplate, task.URL)
+		pcOut, pcErr := pcCmd.CombinedOutput()
+		cancel()
+		if pcErr == nil {
 			var pcResult struct {
 				PrecreatedDirs int `json:"precreated_dirs"`
 			}
