@@ -179,7 +179,6 @@ Docker mounts `./downloads` as a volume: your files survive restarts and can be 
 
 | Script | Role |
 |---|---|
-| `fast_filter.py` | instantly detects tracks already on disk |
 | `precreate_dirs.py` | pre-creates album folders (single → album) |
 | `tag_soneph.py` | `TXXX:SONEPH` marker + source + real bitrate |
 | `lyrics_retry.py` | synced lyrics + recorded source |

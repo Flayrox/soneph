@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/storage"
@@ -91,6 +92,7 @@ func TestRegisterRoutes(t *testing.T) {
 		{"download - body invalide", http.MethodPost, "/api/download", `{}`, http.StatusBadRequest, nil},
 		{"download - URL acceptée", http.MethodPost, "/api/download", `{"url":"https://example.com/track"}`, http.StatusAccepted, []string{"message", "task"}},
 		{"tasks", http.MethodGet, "/api/tasks", "", http.StatusOK, []string{"tasks"}},
+		{"jobs - file vide", http.MethodGet, "/api/jobs", "", http.StatusOK, []string{"jobs"}},
 		{"downloads - bibliothèque vide", http.MethodGet, "/api/downloads", "", http.StatusOK, []string{"files"}},
 		{"library - base vide", http.MethodGet, "/api/library", "", http.StatusOK, []string{"count", "tracks"}},
 		{"rescan - base vide", http.MethodPost, "/api/rescan", "", http.StatusOK, []string{"stats"}},
@@ -169,6 +171,9 @@ func TestRegisterRoutes(t *testing.T) {
 		// ── websocket ────────────────────────────────────────────────
 		// Un GET HTTP classique sur /ws n'est pas un handshake WebSocket.
 		{"ws - handshake HTTP refusé", http.MethodGet, "/api/ws", "", http.StatusBadRequest, nil},
+
+		// ── jobs (M4 / M5) ──────────────────────────────────────────────
+		{"jobs - file non vide", http.MethodGet, "/api/jobs", "", http.StatusOK, []string{"jobs"}},
 	}
 
 	for _, tc := range cases {
@@ -198,5 +203,56 @@ func TestRegisterRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGetJobsWithRetry vérifie que GET /api/jobs expose ce dont le panneau
+// frontend a besoin : statut, type, tentatives et retry_at (compte à
+// rebours du backoff M4).
+func TestGetJobsWithRetry(t *testing.T) {
+	r, api := newTestAPI(t)
+
+	// Un job download clôturé et un job fast_filter en backoff (retry_at).
+	if err := api.st.CreateJob(store.Job{ID: "j_done", Type: "download", Payload: `{"url":"https://example.com/a"}`, Status: "done"}); err != nil {
+		t.Fatalf("CreateJob(done): %v", err)
+	}
+	if err := api.st.CreateJob(store.Job{ID: "ff_1", Type: "fast_filter", Payload: `{"task_id":"t1","url":"https://example.com/b"}`, Status: "queued"}); err != nil {
+		t.Fatalf("CreateJob(ff): %v", err)
+	}
+	if err := api.st.SetRetryAt("ff_1", time.Now().Add(30*time.Second)); err != nil {
+		t.Fatalf("SetRetryAt: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/jobs → %d (body: %s)", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Jobs []store.Job `json:"jobs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Jobs) != 2 {
+		t.Fatalf("jobs = %d, want 2", len(resp.Jobs))
+	}
+	var ff *store.Job
+	for i := range resp.Jobs {
+		if resp.Jobs[i].ID == "ff_1" {
+			ff = &resp.Jobs[i]
+		}
+	}
+	if ff == nil {
+		t.Fatal("job fast_filter absent de la réponse")
+	}
+	if ff.Type != "fast_filter" || ff.Status != "queued" {
+		t.Errorf("ff = type %q status %q", ff.Type, ff.Status)
+	}
+	if ff.RetryAt == nil {
+		t.Error("retry_at absent — le panneau frontend ne peut pas afficher le compte à rebours")
+	} else if left := time.Until(*ff.RetryAt); left > 40*time.Second || left < 20*time.Second {
+		t.Errorf("retry_at = %v (dans %v), want ~30 s", *ff.RetryAt, left)
 	}
 }

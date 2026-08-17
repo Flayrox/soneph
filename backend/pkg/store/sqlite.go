@@ -63,14 +63,22 @@ func (s *SQLiteStore) Close() error { return s.db.Close() }
 
 const timeLayout = "2006-01-02 15:04:05"
 
-// parseTime accepte les deux formats possibles de DATETIME SQLite :
-// RFC3339Nano (écrit par SyncLibrary, mtime du fichier) et le format par
-// défaut « YYYY-MM-DD HH:MM:SS » (CURRENT_TIMESTAMP).
+// timeLayoutMs est le format de SetRetryAt (millisecondes, UTC) : les
+// DATETIME SQLite peuvent donc porter une fraction de seconde.
+const timeLayoutMs = "2006-01-02 15:04:05.000"
+
+// parseTime accepte les formats possibles de DATETIME SQLite :
+// RFC3339Nano (écrit par SyncLibrary, mtime du fichier), le format par
+// défaut « YYYY-MM-DD HH:MM:SS » (CURRENT_TIMESTAMP) et la variante
+// milliseconde de SetRetryAt.
 func parseTime(v string) time.Time {
 	if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
 		return t
 	}
 	if t, err := time.Parse(timeLayout, v); err == nil {
+		return t
+	}
+	if t, err := time.Parse(timeLayoutMs, v); err == nil {
 		return t
 	}
 	return time.Time{}
@@ -410,7 +418,8 @@ func (s *SQLiteStore) ListJobs(status string, limit int) ([]Job, error) {
 	}
 	q := `
 		SELECT id, type, payload, status, priority, attempts, max_attempts,
-		       COALESCE(error, ''), created_at, started_at, finished_at
+		       COALESCE(error, ''), created_at, started_at, finished_at,
+		       COALESCE(retry_at, '')
 		  FROM jobs`
 	var args []any
 	if status != "" {
@@ -464,7 +473,8 @@ func (s *SQLiteStore) ListJobsQueued(jobType string, limit int) ([]Job, error) {
 	}
 	rows, err := s.db.Query(`
 		SELECT id, type, payload, status, priority, attempts, max_attempts,
-		       COALESCE(error, ''), created_at, started_at, finished_at
+		       COALESCE(error, ''), created_at, started_at, finished_at,
+		       COALESCE(retry_at, '')
 		  FROM jobs
 		 WHERE status = 'queued' AND type = ?
 		   AND (retry_at IS NULL OR retry_at <= strftime('%Y-%m-%d %H:%M:%f', 'now'))
@@ -490,10 +500,10 @@ func (s *SQLiteStore) ListJobsQueued(jobType string, limit int) ([]Job, error) {
 // horodatages).
 func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	var j Job
-	var createdAt string
+	var createdAt, retryAt string
 	var startedAt, finishedAt sql.NullString
 	if err := row.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Priority,
-		&j.Attempts, &j.MaxAttempts, &j.Error, &createdAt, &startedAt, &finishedAt); err != nil {
+		&j.Attempts, &j.MaxAttempts, &j.Error, &createdAt, &startedAt, &finishedAt, &retryAt); err != nil {
 		return j, err
 	}
 	j.CreatedAt = parseTime(createdAt)
@@ -504,6 +514,10 @@ func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	if finishedAt.Valid {
 		t := parseTime(finishedAt.String)
 		j.FinishedAt = &t
+	}
+	if retryAt != "" {
+		t := parseTime(retryAt)
+		j.RetryAt = &t
 	}
 	return j, nil
 }
@@ -518,7 +532,8 @@ func (s *SQLiteStore) ClaimJob(id string) (*Job, error) {
 		  attempts = attempts + 1
 		 WHERE id = ? AND status = 'queued'
 		 RETURNING id, type, payload, status, priority, attempts, max_attempts,
-		           COALESCE(error, ''), created_at, started_at, finished_at`, id)
+		           COALESCE(error, ''), created_at, started_at, finished_at,
+		           COALESCE(retry_at, '')`, id)
 	j, err := scanJob(row)
 	if err == sql.ErrNoRows {
 		return nil, nil // déjà pris par un autre worker

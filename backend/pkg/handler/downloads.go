@@ -178,6 +178,19 @@ func (a *API) GetTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
 }
 
+// GetJobs liste les jobs récents de la file M4 (tous statuts, tous types),
+// pour le panneau « jobs » du frontend. Chaque transition d'état y est
+// aussi poussée en direct sur le WebSocket (job_update) — le GET ne sert
+// qu'à la première hydratation et aux re-synchronisations.
+func (a *API) GetJobs(c *gin.Context) {
+	jobList, err := a.st.ListJobs("", 100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"jobs": jobList})
+}
+
 // DeleteDownload supprime un fichier de la bibliothèque. Si une autre copie
 // du même morceau (même URL Spotify dans les tags) existe encore, les stats
 // (écoutes, likes, playlists) y sont migrées.

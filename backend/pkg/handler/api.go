@@ -80,6 +80,7 @@ func (a *API) RegisterRoutes(r *gin.Engine) {
 	{
 		apiGroup.POST("/download", a.CreateDownload)
 		apiGroup.GET("/tasks", a.GetTasks)
+		apiGroup.GET("/jobs", a.GetJobs)
 		apiGroup.GET("/downloads", a.GetDownloads)
 		apiGroup.DELETE("/downloads", a.DeleteDownload)
 		apiGroup.GET("/library", a.GetLibrary)

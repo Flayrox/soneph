@@ -143,6 +143,9 @@ type Job struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	// RetryAt est la prochaine échéance d'un job 'queued' en backoff (M4) :
+	// le panneau jobs du frontend affiche le compte à rebours.
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 }
 
 // Store est l'interface que tout accès aux données doit utiliser. Les

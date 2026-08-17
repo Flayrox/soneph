@@ -350,6 +350,31 @@ func TestJobs(t *testing.T) {
 	if err := st.UpdateJobStatus("nope", "done", ""); err != ErrNotFound {
 		t.Errorf("UpdateJobStatus inexistant = %v, want ErrNotFound", err)
 	}
+
+	// RetryAt (backoff M4) : planifié puis relu (ListJobs le ramène pour le
+	// compte à rebours du panneau jobs).
+	target := time.Now().Add(30 * time.Second)
+	if err := st.SetRetryAt("j2", target); err != nil {
+		t.Fatalf("SetRetryAt: %v", err)
+	}
+	again, err := st.ListJobs("queued", 10)
+	if err != nil {
+		t.Fatalf("ListJobs après retry: %v", err)
+	}
+	var withRetry *Job
+	for i := range again {
+		if again[i].ID == "j2" {
+			withRetry = &again[i]
+		}
+	}
+	if withRetry == nil {
+		t.Fatal("job j2 absent de la liste des jobs queued")
+	}
+	if withRetry.RetryAt == nil {
+		t.Error("RetryAt = nil après SetRetryAt")
+	} else if diff := withRetry.RetryAt.Sub(target); diff > time.Second || diff < -time.Second {
+		t.Errorf("RetryAt = %v, want ~%v", withRetry.RetryAt, target)
+	}
 }
 
 func TestPlaylists(t *testing.T) {

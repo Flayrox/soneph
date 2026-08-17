@@ -13,6 +13,7 @@ import (
 
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/fastfilter"
 	"soneph-backend/pkg/handler"
 	"soneph-backend/pkg/jobs"
 	"soneph-backend/pkg/storage"
@@ -170,6 +171,16 @@ func main() {
 	// en direct sur le WebSocket — le front voit la file sans polling.
 	jobQueue := jobs.New(st).WithBroadcast(wsHub.Broadcast)
 	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast, jobQueue)
+
+	// M5 : le fast filter (Go) est un job asynchrone de la file M4. Son
+	// worker applique le résultat à la tâche puis ré-enfile le
+	// téléchargement (même task_id) — l'utilisateur voit « X déjà sur
+	// disque, Y à télécharger » avant même que spotdl démarre.
+	ffWorker := fastfilter.NewWorker(jobQueue, downloadDir, func(p fastfilter.Payload, res fastfilter.Result) {
+		dlManager.ApplyFastFilter(p, res)
+		dlManager.EnqueueDownload(p)
+	})
+	go ffWorker.Run()
 
 	// Diagnostic précoce : si le moteur de téléchargement n'est pas installé
 	// (ou hors PATH), chaque tâche échouera. On le signale dès le démarrage
