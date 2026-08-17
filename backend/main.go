@@ -83,7 +83,7 @@ func main() {
 	playlistStore := playlists.New()
 	historyStore := history.New()
 	likesStore := history.NewLikes()
-	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore)
+	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore, wsHub)
 
 	r := gin.Default()
 
@@ -97,48 +97,10 @@ func main() {
 		MaxAge:        12 * time.Hour,
 	}))
 
-	// API Routes — protected by an optional token (SONEPH_TOKEN) and a
-	// per-IP rate limit. The WebSocket handshake lives here too, so it
-	// inherits the same checks (token via ?token= query param).
-	apiGroup := r.Group("/api")
-	apiGroup.Use(auth.RequireToken(), auth.RateLimit(120, time.Minute))
-	{
-		apiGroup.POST("/download", api.CreateDownload)
-		apiGroup.GET("/tasks", api.GetTasks)
-		apiGroup.GET("/downloads", api.GetDownloads)
-		apiGroup.DELETE("/downloads", api.DeleteDownload)
-		apiGroup.GET("/stream", api.StreamFile)
-		apiGroup.GET("/file/details", api.GetFileDetails)
-		apiGroup.GET("/cover", api.GetCover)
-		apiGroup.GET("/lyrics", api.GetLyrics)
-		apiGroup.GET("/lyrics/missing", api.ScanMissingLyrics)
-		apiGroup.POST("/lyrics/retry", api.RetryLyrics)
-		apiGroup.GET("/lyrics/retry", api.GetLyricsJobStatus)
-		apiGroup.GET("/settings", api.GetSettings)
-		apiGroup.POST("/settings", api.SaveSettings)
-		apiGroup.GET("/playlists", api.ListPlaylists)
-		apiGroup.POST("/playlists", api.CreatePlaylist)
-		apiGroup.POST("/playlists/from-url", api.CreatePlaylistFromURL)
-		apiGroup.DELETE("/playlists/:id", api.DeletePlaylist)
-		apiGroup.GET("/playlists/:id", api.GetPlaylist)
-		apiGroup.POST("/playlists/:id/tracks", api.AddPlaylistTrack)
-		apiGroup.DELETE("/playlists/:id/tracks", api.RemovePlaylistTrack)
-		apiGroup.POST("/playlists/:id/order", api.ReorderPlaylist)
-		apiGroup.POST("/scrobble", api.Scrobble)
-		apiGroup.GET("/history/recent", api.GetRecentHistory)
-		apiGroup.GET("/history/top", api.GetTopTracks)
-		apiGroup.GET("/stats", api.GetStats)
-		apiGroup.GET("/likes", api.GetLikes)
-		apiGroup.POST("/likes", api.AddLike)
-		apiGroup.DELETE("/likes", api.RemoveLike)
-		apiGroup.GET("/sync/status", api.GetSyncStatus)
-		apiGroup.POST("/sync/start", api.StartSync)
-		apiGroup.POST("/sync/stop", api.StopSync)
-		apiGroup.GET("/duplicates", api.FindDuplicates)
-		apiGroup.POST("/duplicates/remove", api.RemoveDuplicates)
-		apiGroup.POST("/playlists/export", api.ExportPlaylists)
-		apiGroup.GET("/ws", wsHub.HandleWS)
-	}
+	// Routes API — enregistrées par le package handler (token + rate limit
+	// appliqués dans RegisterRoutes). Le handshake WebSocket vit dans le même
+	// groupe pour hériter des mêmes contrôles.
+	api.RegisterRoutes(r)
 
 	// SPA fallback: serve the embedded frontend for any non-API route.
 	// http.FileServer resolves / -> index.html and serves static assets;
