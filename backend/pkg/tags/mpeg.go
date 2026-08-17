@@ -67,11 +67,17 @@ func MPEGDurationBitrate(path string) (durationMs int, bitrate int) {
 		srIdx := (header[2] >> 2) & 0x03
 		padding := int((header[2] >> 1) & 0x01)
 
+		// En-tête invalide (ex. srIdx=3 → sr=0, ou brIdx=0/15 → br=0) : on
+		// saute AVANT toute division — un fichier réel avec un en-tête
+		// inhabituel ne doit jamais faire paniquer le scan de démarrage.
 		var br, sr, frameLen int
 		var samplesPerFrame int
 		if layer == 3 { // Layer I
 			br = mpegBitrateL3[brIdx]
 			sr = mpegSampleRates[version][srIdx]
+			if br == 0 || sr == 0 {
+				continue
+			}
 			frameLen = (12*br*1000/sr + padding) * 4
 			samplesPerFrame = 384
 		} else if layer == 2 { // Layer II
@@ -81,24 +87,32 @@ func MPEGDurationBitrate(path string) (durationMs int, bitrate int) {
 				br = mpegBitrateL3Low[brIdx]
 			}
 			sr = mpegSampleRates[version][srIdx]
+			if br == 0 || sr == 0 {
+				continue
+			}
 			frameLen = 144 * br * 1000 / sr
 			if padding == 1 {
 				frameLen++
 			}
 			samplesPerFrame = 1152
 		} else { // Layer III
+			br = mpegBitrateL3[brIdx]
+			if version != 3 {
+				br = mpegBitrateL3Low[brIdx]
+			}
 			sr = mpegSampleRates[version][srIdx]
+			if br == 0 || sr == 0 {
+				continue
+			}
 			if version == 3 {
-				br = mpegBitrateL3[brIdx]
 				frameLen = 144*br*1000/sr + padding
 				samplesPerFrame = 1152
 			} else {
-				br = mpegBitrateL3Low[brIdx]
 				frameLen = 72*br*1000/sr + padding
 				samplesPerFrame = 576
 			}
 		}
-		if br == 0 || sr == 0 || frameLen <= 4 {
+		if frameLen <= 4 {
 			continue
 		}
 		if bitrate < 0 {

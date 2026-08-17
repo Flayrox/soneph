@@ -131,6 +131,36 @@ func TestMPEGDurationBitrate(t *testing.T) {
 	}
 }
 
+// TestMPEGInvalidHeader : un fichier contenant un en-tête MPEG avec un
+// index d'échantillonnage invalide (srIdx=3 → sr=0) ne doit JAMAIS faire
+// paniquer le parseur (bug réel trouvé en live sur un fichier spotdl :
+// division par zéro au scan de démarrage). Le parseur saute l'en-tête et
+// continue vers les frames valides suivantes.
+func TestMPEGInvalidHeader(t *testing.T) {
+	// En-tête MPEG2 Layer III avec srIdx=3 (sr=0) : 0xFF 0xF3 0x8C 0x00.
+	var audio []byte
+	audio = append(audio, 0xFF, 0xF3, 0x8C, 0x00)
+	audio = append(audio, make([]byte, 200)...) // « corps » de frame bidon
+	// Puis des frames MPEG1 valides (128 kbps, 44,1 kHz) : le parseur doit
+	// les trouver APRÈS l'en-tête invalide.
+	frameLen := 144*128000/44100 - 4
+	for i := 0; i < 20; i++ {
+		audio = append(audio, 0xFF, 0xFB, 0x90, 0x00)
+		audio = append(audio, make([]byte, frameLen)...)
+	}
+	path := filepath.Join(t.TempDir(), "bad-header.mp3")
+	if err := os.WriteFile(path, audio, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, br := MPEGDurationBitrate(path) // ne doit pas paniquer
+	if d < 400 || d > 700 {            // ~20 frames × 1152 / 44100 ≈ 522 ms
+		t.Errorf("durée = %d ms, want ~522", d)
+	}
+	if br != 128 {
+		t.Errorf("débit = %d, want 128 (frame valide après l'invalide)", br)
+	}
+}
+
 func TestFileDetails(t *testing.T) {
 	dir := t.TempDir()
 	rel := "Radiohead/OK Computer/05-airbag.mp3"
