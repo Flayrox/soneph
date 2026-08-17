@@ -667,6 +667,16 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// keep it modest to avoid platform rate limiting. Réglable via
 	// l'UI (config) ou SONEPH_THREADS.
 	threads := envInt("SONEPH_THREADS", config.Load().Threads)
+
+	// Le client par défaut de yt-dlp est régulièrement bloqué par YouTube
+	// (« BaseClientError: Could not get session » — bot detection / rate
+	// limit IP). On passe par des clients alternatifs qui passent ce
+	// blocage (web_embedded, android_vr, tv_simply) ; yt-dlp essaie chacun
+	// dans l'ordre. Surchargeable via SONEPH_YTDLP_ARGS.
+	ytdlpArgs := os.Getenv("SONEPH_YTDLP_ARGS")
+	if ytdlpArgs == "" {
+		ytdlpArgs = "--extractor-args youtube:player_client=web_embedded,android_vr,tv_simply"
+	}
 	cmdArgs := []string{
 		"download", task.URL,
 		"--bitrate", task.Bitrate,
@@ -674,6 +684,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 		"--overwrite", overwriteFlag,
 		"--scan-for-songs",
 		"--max-retries", "1",
+		"--yt-dlp-args", ytdlpArgs,
 		"--output", outputTemplate,
 	}
 
@@ -750,7 +761,13 @@ func (m *Manager) runTask(task *DownloadTask) {
 		m.mu.RUnlock()
 
 		if !hasSomeProgress {
-			m.failTask(task, fmt.Sprintf("download engine process exited with error: %v", err))
+			// Message d'erreur avec la cause réelle (ex. « Could not get
+			// session » de yt-dlp) au lieu du vague « exit status 1 ».
+			msg := fmt.Sprintf("download engine process exited with error: %v", err)
+			if hint := m.engineErrorHint(task); hint != "" {
+				msg += " — " + hint
+			}
+			m.failTask(task, msg)
 			return
 		}
 		m.mu.Lock()
@@ -800,6 +817,24 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// stalls on a slow lyrics provider. Progress lands in the task logs and
 	// a "downloads_changed" event lets the frontend refresh file metadata.
 	go m.fetchLyricsInBackground(task)
+}
+
+// engineErrorHint renvoie la cause probable d'un échec du moteur : la
+// dernière ligne de log non vide (souvent l'erreur réelle de spotdl/yt-dlp,
+// ex. « BaseClientError: Could not get session ») qui remplace le vague
+// « exit status 1 » affiché à l'utilisateur.
+func (m *Manager) engineErrorHint(task *DownloadTask) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for i := len(task.Logs) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(task.Logs[i]); s != "" {
+			if len(s) > 300 {
+				s = s[:300] + "…"
+			}
+			return s
+		}
+	}
+	return ""
 }
 
 // appendLog appends a line to a task's logs under lock, keeping the list
