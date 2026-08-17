@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"soneph-backend/pkg/config"
+	"soneph-backend/pkg/jobs"
+	"soneph-backend/pkg/store"
 	"sort"
 	"strconv"
 	"strings"
@@ -168,6 +172,9 @@ type Manager struct {
 	persistPath  string
 	onFilesMoved func(moves []FileMove)
 	onTaskDone   func(task *DownloadTask)
+	// jobs (M4) : quand non nil, la file est la table jobs — dequeue
+	// atomique, backoff exponentiel et circuit breaker par source.
+	jobs *jobs.Queue
 
 	// Cache de la carte d'identité (URL Spotify → chemins) : la lire relit
 	// les tags ID3 de TOUTE la bibliothèque (~1 s pour 136 fichiers, bien
@@ -283,7 +290,7 @@ func envInt(name string, def int) int {
 	return def
 }
 
-func NewManager(downloadDir string, broadcastFn func(event string, data interface{})) *Manager {
+func NewManager(downloadDir string, broadcastFn func(event string, data interface{}), jobQueues ...*jobs.Queue) *Manager {
 	if downloadDir == "" {
 		downloadDir = "./downloads"
 	}
@@ -296,7 +303,16 @@ func NewManager(downloadDir string, broadcastFn func(event string, data interfac
 		broadcastFn: broadcastFn,
 		persistPath: queuePath(),
 	}
-	m.recoverQueue()
+	if len(jobQueues) > 0 {
+		m.jobs = jobQueues[0]
+		// La file est la table jobs : les tâches 'running' d'un processus
+		// mort (kill -9) sont relancées au démarrage.
+		if err := m.jobs.RequeueOrphaned(); err != nil {
+			slog.Error("relance des jobs orphelins impossible", "err", err)
+		}
+	} else {
+		m.recoverQueue()
+	}
 
 	// Parallel engine processes (one per queued URL). Keep this modest:
 	// each process already downloads several tracks concurrently, and going
@@ -334,8 +350,16 @@ func (m *Manager) AddTask(url string, bitrate string, order string) *DownloadTas
 	m.mu.Unlock()
 
 	m.notifyUpdate(task)
-	m.queue <- task
-	m.persist()
+	if m.jobs != nil {
+		// M4 : la file persistante est la table jobs (survit à un kill -9).
+		payload, _ := json.Marshal(jobs.PayloadDownload{URL: url, Bitrate: bitrate, Order: order})
+		if err := m.jobs.Enqueue(store.Job{ID: id, Type: "download", Payload: string(payload)}); err != nil {
+			slog.Error("job non enfilé", "task", id, "err", err)
+		}
+	} else {
+		m.queue <- task
+		m.persist()
+	}
 	return task
 }
 
@@ -542,9 +566,100 @@ func (m *Manager) notifyUpdate(task *DownloadTask) {
 }
 
 func (m *Manager) worker() {
+	if m.jobs != nil {
+		m.workerJobs()
+		return
+	}
 	for task := range m.queue {
 		m.runTask(task)
 	}
+}
+
+// workerJobs est le worker M4 : il réclame un job 'download' (dequeue
+// atomique + circuit breaker par source), l'exécute, puis clôture ou
+// reprogramme (backoff exponentiel) selon le résultat.
+func (m *Manager) workerJobs() {
+	for {
+		job, err := m.jobs.Dequeue("download")
+		if err != nil {
+			slog.Error("dequeue échoué", "err", err)
+			time.Sleep(jobs.PollInterval)
+			continue
+		}
+		if job == nil {
+			time.Sleep(jobs.PollInterval)
+			continue
+		}
+		task := m.taskFromJob(job)
+		m.runTask(task)
+
+		source := jobsSource(task.URL)
+		m.mu.RLock()
+		errMsg := task.Error
+		succeeded := task.Status == StatusCompleted
+		m.mu.RUnlock()
+
+		switch {
+		case succeeded:
+			if err := m.jobs.Complete(job.ID, source, ""); err != nil {
+				slog.Error("job non clôturé", "id", job.ID, "err", err)
+			}
+		case job.Attempts >= job.MaxAttempts:
+			if err := m.jobs.Complete(job.ID, source, errMsg); err != nil {
+				slog.Error("job non clôturé", "id", job.ID, "err", err)
+			}
+		default:
+			// Nouvelle tentative différée (backoff 2^attempts × base) ; la
+			// tâche reste visible dans l'UI comme « queued ».
+			if err := m.jobs.ScheduleRetry(job.ID, job.Attempts); err != nil {
+				slog.Error("retry non programmé", "id", job.ID, "err", err)
+			}
+			m.mu.Lock()
+			task.Status = StatusQueued
+			task.Error = ""
+			task.Progress = "Échec — nouvelle tentative programmée automatiquement"
+			task.Logs = append(task.Logs, fmt.Sprintf("[%s] Échec — nouvelle tentative programmée (tentative %d/%d).", time.Now().Format("15:04:05"), job.Attempts+1, job.MaxAttempts))
+			m.mu.Unlock()
+			m.notifyUpdate(task)
+		}
+	}
+}
+
+// taskFromJob retrouve la tâche en mémoire (AddTask) ou la reconstruit depuis
+// le payload du job après un redémarrage.
+func (m *Manager) taskFromJob(job *store.Job) *DownloadTask {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.tasks[job.ID]; ok {
+		return t
+	}
+	var p jobs.PayloadDownload
+	_ = json.Unmarshal([]byte(job.Payload), &p)
+	if p.URL == "" {
+		p.URL = job.ID
+	}
+	t := &DownloadTask{
+		ID:           job.ID,
+		URL:          p.URL,
+		Bitrate:      p.Bitrate,
+		Order:        p.Order,
+		Status:       StatusQueued,
+		Progress:     "Relancé après redémarrage",
+		Logs:         []string{fmt.Sprintf("[%s] Task recovered from job queue after restart.", time.Now().Format("15:04:05"))},
+		RecentTracks: []string{},
+		CreatedAt:    time.Now(),
+	}
+	m.tasks[job.ID] = t
+	return t
+}
+
+// jobsSource extrait l'hôte (circuit breaker) de l'URL d'une tâche.
+func jobsSource(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 func (m *Manager) runTask(task *DownloadTask) {

@@ -428,21 +428,9 @@ func (s *SQLiteStore) ListJobs(status string, limit int) ([]Job, error) {
 
 	var jobs []Job
 	for rows.Next() {
-		var j Job
-		var createdAt string
-		var startedAt, finishedAt sql.NullString
-		if err := rows.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Priority,
-			&j.Attempts, &j.MaxAttempts, &j.Error, &createdAt, &startedAt, &finishedAt); err != nil {
+		j, err := scanJob(rows)
+		if err != nil {
 			return nil, err
-		}
-		j.CreatedAt = parseTime(createdAt)
-		if startedAt.Valid {
-			t := parseTime(startedAt.String)
-			j.StartedAt = &t
-		}
-		if finishedAt.Valid {
-			t := parseTime(finishedAt.String)
-			j.FinishedAt = &t
 		}
 		jobs = append(jobs, j)
 	}
@@ -466,6 +454,104 @@ func (s *SQLiteStore) UpdateJobStatus(id, status, errMsg string) error {
 	}
 	slog.Debug("job mis à jour", "id", id, "status", status)
 	return nil
+}
+
+// ListJobsQueued liste les jobs prêts d'un type (retry_at atteint), par
+// priorité puis ancienneté.
+func (s *SQLiteStore) ListJobsQueued(jobType string, limit int) ([]Job, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`
+		SELECT id, type, payload, status, priority, attempts, max_attempts,
+		       COALESCE(error, ''), created_at, started_at, finished_at
+		  FROM jobs
+		 WHERE status = 'queued' AND type = ?
+		   AND (retry_at IS NULL OR retry_at <= strftime('%Y-%m-%d %H:%M:%f', 'now'))
+		 ORDER BY priority DESC, created_at
+		 LIMIT ?`, jobType, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: jobs prêts: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// scanJob lit une ligne jobs complète (id, type, payload, statut, tentatives,
+// horodatages).
+func scanJob(row interface{ Scan(...any) error }) (Job, error) {
+	var j Job
+	var createdAt string
+	var startedAt, finishedAt sql.NullString
+	if err := row.Scan(&j.ID, &j.Type, &j.Payload, &j.Status, &j.Priority,
+		&j.Attempts, &j.MaxAttempts, &j.Error, &createdAt, &startedAt, &finishedAt); err != nil {
+		return j, err
+	}
+	j.CreatedAt = parseTime(createdAt)
+	if startedAt.Valid {
+		t := parseTime(startedAt.String)
+		j.StartedAt = &t
+	}
+	if finishedAt.Valid {
+		t := parseTime(finishedAt.String)
+		j.FinishedAt = &t
+	}
+	return j, nil
+}
+
+// ClaimJob réclame atomiquement un job : UPDATE…RETURNING (SQLite ≥ 3.35),
+// une seule instruction — deux workers ne peuvent pas prendre le même job.
+func (s *SQLiteStore) ClaimJob(id string) (*Job, error) {
+	row := s.db.QueryRow(`
+		UPDATE jobs SET
+		  status = 'running',
+		  started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+		  attempts = attempts + 1
+		 WHERE id = ? AND status = 'queued'
+		 RETURNING id, type, payload, status, priority, attempts, max_attempts,
+		           COALESCE(error, ''), created_at, started_at, finished_at`, id)
+	j, err := scanJob(row)
+	if err == sql.ErrNoRows {
+		return nil, nil // déjà pris par un autre worker
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: réclamation du job %s: %w", id, err)
+	}
+	return &j, nil
+}
+
+// SetRetryAt planifie la nouvelle tentative d'un job (backoff exponentiel).
+// Format millisecondes, UTC : comparé à strftime('%Y-%m-%d %H:%M:%f','now')
+// du dequeue — les deux sont lexicographiquement comparables (le format
+// natif CURRENT_TIMESTAMP, à la seconde près, rendrait un backoff < 1 s
+// inefficace et illisible).
+func (s *SQLiteStore) SetRetryAt(id string, at time.Time) error {
+	_, err := s.db.Exec(`UPDATE jobs SET retry_at = ? WHERE id = ?`, at.UTC().Format("2006-01-02 15:04:05.000"), id)
+	if err != nil {
+		return fmt.Errorf("store: planification du retry %s: %w", id, err)
+	}
+	return nil
+}
+
+// RequeueRunning relance les jobs 'running' orphelins (processus tué en
+// plein travail) : ils repassent 'queued' pour être repris au démarrage.
+func (s *SQLiteStore) RequeueRunning() (int64, error) {
+	res, err := s.db.Exec(`
+		UPDATE jobs SET status = 'queued', error = 'relancé après redémarrage', started_at = NULL
+		 WHERE status = 'running'`)
+	if err != nil {
+		return 0, fmt.Errorf("store: relance des jobs orphelins: %w", err)
+	}
+	return res.RowsAffected()
 }
 
 // ── Playlists (M3 part 2) ────────────────────────────────────────────────

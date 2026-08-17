@@ -66,8 +66,8 @@ func TestOpenAppliesMigrations(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT MAX(version_id) FROM goose_db_version`).Scan(&version); err != nil {
 		t.Fatalf("goose_db_version: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("version goose = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("version goose = %d, want 5", version)
 	}
 }
 

@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
+
 	"soneph-backend/pkg/auth"
 	"soneph-backend/pkg/downloader"
 	"soneph-backend/pkg/handler"
+	"soneph-backend/pkg/jobs"
 	"soneph-backend/pkg/storage"
 	"soneph-backend/pkg/store"
 	"soneph-backend/pkg/syncmgr"
-	"strings"
-	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -144,23 +146,10 @@ func main() {
 
 	wsHub := handler.NewWSHub()
 
-	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast)
-
-	// Diagnostic précoce : si le moteur de téléchargement n'est pas installé
-	// (ou hors PATH), chaque tâche échouera. On le signale dès le démarrage
-	// pour que l'utilisateur voie le problème dans les logs du serveur.
-	if downloader.EnginePath() == "" {
-		slog.Warn("moteur de téléchargement introuvable — les téléchargements échoueront",
-			"engine", downloader.EngineBin(),
-			"hint", "pipx install spotdl (ou : pip install spotdl) puis relance l'app",
-		)
-	}
-	scanner := storage.NewScanner(downloadDir)
-	importer := syncmgr.New(downloadDir)
-
 	// SQLite : source de vérité (M2). Migrations goose appliquées à
 	// l'ouverture ; le scan initial (boot) peuple la base — les syncs
-	// suivants sont des deltas par mtime (POST /api/rescan).
+	// suivants sont des deltas par mtime (POST /api/rescan). Ouverte avant
+	// le téléchargeur : la file de téléchargement vit dans la table jobs (M4).
 	dbPath := os.Getenv("SONEPH_DB")
 	if dbPath == "" {
 		d, err := os.UserConfigDir()
@@ -175,6 +164,21 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
+
+	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast, jobs.New(st))
+
+	// Diagnostic précoce : si le moteur de téléchargement n'est pas installé
+	// (ou hors PATH), chaque tâche échouera. On le signale dès le démarrage
+	// pour que l'utilisateur voie le problème dans les logs du serveur.
+	if downloader.EnginePath() == "" {
+		slog.Warn("moteur de téléchargement introuvable — les téléchargements échoueront",
+			"engine", downloader.EngineBin(),
+			"hint", "pipx install spotdl (ou : pip install spotdl) puis relance l'app",
+		)
+	}
+	scanner := storage.NewScanner(downloadDir)
+	importer := syncmgr.New(downloadDir)
+
 	if files, err := scanner.ListFiles(); err == nil {
 		stats, _ := st.SyncLibrary(files)
 		slog.Info("scan initial (boot)", "db", dbPath, "scanned", stats.Scanned, "added", stats.Added, "updated", stats.Updated)

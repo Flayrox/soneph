@@ -203,4 +203,12 @@ type Store interface {
 	CreateJob(j Job) error
 	ListJobs(status string, limit int) ([]Job, error)
 	UpdateJobStatus(id, status, errMsg string) error
+	// ListJobsQueued liste les jobs prêts (retry_at atteint) d'un type.
+	ListJobsQueued(jobType string, limit int) ([]Job, error)
+	// ClaimJob passe atomiquement un job en 'running' (UPDATE…RETURNING).
+	ClaimJob(id string) (*Job, error)
+	// SetRetryAt planifie la nouvelle tentative (backoff).
+	SetRetryAt(id string, at time.Time) error
+	// RequeueRunning relance les jobs 'running' orphelins (kill -9).
+	RequeueRunning() (int64, error)
 }
