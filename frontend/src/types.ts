@@ -32,6 +32,23 @@ export interface DownloadTask {
   error?: string;
 }
 
+/** Ligne de la table jobs (file M4) — panneau « jobs » du DownloadsView. */
+export interface JobRow {
+  id: string;
+  type: string;
+  payload: string;
+  status: "queued" | "running" | "done" | "failed";
+  priority: number;
+  attempts: number;
+  max_attempts: number;
+  error?: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  /** Prochaine échéance d'un retry (backoff M4) — compte à rebours. */
+  retry_at?: string | null;
+}
+
 export interface PlaylistSummary {
   id: string;
   name: string;

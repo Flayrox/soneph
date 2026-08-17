@@ -64,6 +64,17 @@ const dict: Record<Lang, Record<string, string>> = {
     Downloaded: "Téléchargé",
     Synced: "Synchronisé",
 
+    // ── File M4 (jobs) ──
+    "Job Queue": "File des tâches",
+    "Fast Filter": "Filtre rapide",
+    Download: "Téléchargement",
+    "Scans the link against your library": "Analyse le lien face à ta bibliothèque",
+    "Downloads tracks from the link": "Télécharge les morceaux du lien",
+    Running: "En cours",
+    Done: "Terminé",
+    "Retry in": "Nouvelle tentative dans",
+    attempts: "tentatives",
+
     // ── Liste des morceaux ──
     Title: "Titre",
     Album: "Album",

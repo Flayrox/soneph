@@ -1,20 +1,132 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Glass } from "./Glass";
-import { CheckCircle2, AlertCircle, Clock, Zap, Music, Disc, DownloadCloud } from "lucide-react";
+import {
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Zap,
+  Music,
+  Disc,
+  DownloadCloud,
+  Filter,
+  RefreshCw,
+  Loader2,
+} from "lucide-react";
 import { cleanTitle } from "@/format";
 import type { PluginViewProps } from "@/framework/plugin.types";
+import type { JobRow } from "@/types";
 import { useI18n } from "@/i18n";
 
 export const DownloadsView: React.FC<PluginViewProps> = ({ app }) => {
   const { t } = useI18n();
   const tasks = app.tasks;
+  const jobs = app.jobs;
+
+  // Tic à la seconde : alimente le compte à rebours des retries (backoff M4).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const active = tasks.filter((x) => x.status === "downloading");
   const queued = tasks.filter((x) => x.status === "queued");
   const failed = tasks.filter((x) => x.status === "failed");
   const recent = tasks.flatMap((x) => x.recent_tracks || []);
 
-  if (tasks.length === 0) {
+  // ── File M4 (jobs) ──────────────────────────────────────────────────
+  const runningJobs = jobs.filter((j) => j.status === "running");
+  // En attente d'un worker (FIFO) vs en backoff (retry_at futur → compte à
+  // rebours affiché dans le chip).
+  const queuedJobs = jobs.filter(
+    (j) => j.status === "queued" && !(j.retry_at && new Date(j.retry_at).getTime() > now)
+  );
+  const retryingJobs = jobs.filter(
+    (j) => j.status === "queued" && !!j.retry_at && new Date(j.retry_at).getTime() > now
+  );
+  const failedJobs = jobs.filter((j) => j.status === "failed");
+  const doneJobs = jobs.filter((j) => j.status === "done").slice(-12);
+
+  const jobTypeLabel = (j: JobRow) =>
+    j.type === "fast_filter" ? t("Fast Filter") : j.type === "download" ? t("Download") : j.type;
+
+  const retryLeft = (j: JobRow): number | null => {
+    if (!j.retry_at) return null;
+    const ms = new Date(j.retry_at).getTime() - now;
+    if (ms <= 0) return null; // prêt — repris au prochain dequeue
+    return Math.ceil(ms / 1000);
+  };
+
+  const jobRow = (j: JobRow, muted = false) => {
+    const retry = retryLeft(j);
+    const isRetry = j.status === "queued" && retry !== null;
+    return (
+      <div
+        key={j.id}
+        className={`bg-[#242428]/40 border rounded-xl p-2.5 flex items-center gap-2.5 text-xs ${
+          muted ? "border-white/5 opacity-55" : "border-white/10"
+        }`}
+      >
+        <div
+          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+            j.type === "fast_filter"
+              ? "bg-sky-500/15 text-sky-400 border border-sky-500/30"
+              : "bg-apple-pink/15 text-apple-pink border border-apple-pink/30"
+          }`}
+        >
+          {j.type === "fast_filter" ? <Filter className="w-3.5 h-3.5" /> : <Music className="w-3.5 h-3.5" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-white truncate">{jobTypeLabel(j)}</p>
+          <p className="text-[10px] text-apple-subtext truncate">
+            {j.status === "failed" && j.error
+              ? j.error
+              : j.type === "fast_filter"
+                ? t("Scans the link against your library")
+                : t("Downloads tracks from the link")}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isRetry && <RefreshCw className="w-3 h-3 text-amber-400 animate-spin" />}
+          <span
+            className={`px-2 py-0.5 rounded-full font-medium text-[10px] ${
+              j.status === "running"
+                ? "bg-sky-500/15 text-sky-300"
+                : isRetry
+                  ? "bg-amber-500/15 text-amber-300"
+                  : j.status === "failed"
+                    ? "bg-rose-500/15 text-rose-300"
+                    : j.status === "done"
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : "bg-white/10 text-zinc-300"
+            }`}
+          >
+            {j.status === "running" ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t("Running")}
+              </span>
+            ) : isRetry ? (
+              `${t("Retry in")} ${retry}s`
+            ) : j.status === "failed" ? (
+              t("Failed")
+            ) : j.status === "done" ? (
+              t("Done")
+            ) : (
+              t("Queued")
+            )}
+          </span>
+          <span className="text-[10px] text-zinc-500" title={`${j.attempts}/${j.max_attempts} ${t("attempts")}`}>
+            {j.attempts}/{j.max_attempts}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const hasJobs = jobs.length > 0;
+
+  if (tasks.length === 0 && !hasJobs) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-apple-subtext select-none">
         <DownloadCloud className="w-12 h-12 mb-3 opacity-30" />
@@ -123,6 +235,23 @@ export const DownloadsView: React.FC<PluginViewProps> = ({ app }) => {
                 <p className="text-[11px] text-rose-400/80">{task.error || t("Execution error")}</p>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* Job Queue (file M4) — poussée en direct par les événements job_update */}
+      {(runningJobs.length > 0 || queuedJobs.length > 0 || retryingJobs.length > 0 || failedJobs.length > 0 || doneJobs.length > 0) && (
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold text-apple-subtext uppercase tracking-wider flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5" />
+            <span>{t("Job Queue")} ({jobs.length})</span>
+          </h3>
+          <div className="space-y-2">
+            {runningJobs.map((j) => jobRow(j))}
+            {queuedJobs.map((j) => jobRow(j))}
+            {retryingJobs.map((j) => jobRow(j))}
+            {failedJobs.map((j) => jobRow(j))}
+            {doneJobs.map((j) => jobRow(j, true))}
           </div>
         </section>
       )}

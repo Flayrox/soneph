@@ -23,6 +23,7 @@ import type {
   DownloadedFile,
   DownloadTask,
   HistoryRecord,
+  JobRow,
   Playlist,
   PlaylistSummary,
   SearchTrack,
@@ -61,6 +62,9 @@ export default function App() {
   const statsEnabled = isEnabled("stats");
   const { pins, togglePin, isPinned } = usePins();
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
+  // File M4 : jobs (download, fast_filter…) poussés en direct par
+  // « job_update » — le GET ne sert qu'à la première hydratation.
+  const [jobs, setJobs] = useState<JobRow[]>([]);
   const [files, setFiles] = useState<DownloadedFile[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [playlistDetail, setPlaylistDetail] = useState<Playlist | null>(null);
@@ -154,6 +158,18 @@ export default function App() {
       }
     } catch (err) {
       console.error("Error fetching tasks:", err);
+    }
+  }, []);
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const res = await apiFetch(`${getApiUrl()}/jobs`);
+      if (res.ok) {
+        const data = await res.json();
+        setJobs(data.jobs || []);
+      }
+    } catch (err) {
+      console.error("Error fetching jobs:", err);
     }
   }, []);
 
@@ -324,6 +340,7 @@ export default function App() {
   // Connect WebSockets
   useEffect(() => {
     fetchTasks();
+    fetchJobs();
     fetchFiles();
     fetchPlaylists();
     fetchLikes();
@@ -369,11 +386,12 @@ export default function App() {
           } else if (msg.event === "job_update") {
             // M4 : la file jobs est la vérité. Chaque transition d'état
             // (enfilé → running → done/failed/retry) resynchronise la liste
-            // des téléchargements — sans polling ; un petit debounce absorbe
-            // les rafales (ex. import de playlist).
+            // des téléchargements ET le panneau jobs — sans polling ; un
+            // petit debounce absorbe les rafales (ex. import de playlist).
             if (jobResyncRef.current) window.clearTimeout(jobResyncRef.current);
             jobResyncRef.current = window.setTimeout(() => {
               fetchTasks();
+              fetchJobs();
             }, 200);
           }
         } catch (err) {
@@ -398,7 +416,7 @@ export default function App() {
         wsRef.current.close();
       }
     };
-  }, [fetchTasks, fetchFiles, fetchPlaylists, fetchLikes, fetchHistory]);
+  }, [fetchTasks, fetchJobs, fetchFiles, fetchPlaylists, fetchLikes, fetchHistory]);
 
   const handleDownload = async (url: string, bitrate: string = "320k", order: string = "reverse") => {
     setIsSubmitting(true);
@@ -1014,6 +1032,7 @@ export default function App() {
     setNav: setActiveNav,
     files,
     tasks,
+    jobs,
     playlists,
     playlistDetail,
     likes,
