@@ -9,6 +9,7 @@ import (
 	"soneph-backend/pkg/history"
 	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/store"
 	"soneph-backend/pkg/syncmgr"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,7 @@ type API struct {
 	playlists   *playlists.Store
 	history     *history.Store
 	likes       *history.LikesStore
+	st          store.Store
 	wsHub       *WSHub
 	lyricsJobMu sync.Mutex
 	lyricsJob   *lyricsRetryJob
@@ -36,7 +38,7 @@ type API struct {
 
 // NewAPI construit l'API avec ses dépendances et câble les callbacks du
 // moteur de téléchargement (migration des stats, complétion des playlists).
-func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, hist *history.Store, likes *history.LikesStore, hub *WSHub) *API {
+func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, pls *playlists.Store, hist *history.Store, likes *history.LikesStore, st store.Store, hub *WSHub) *API {
 	a := &API{
 		downloader:    dl,
 		scanner:       sc,
@@ -44,6 +46,7 @@ func NewAPI(dl *downloader.Manager, sc *storage.Scanner, imp *syncmgr.Importer, 
 		playlists:     pls,
 		history:       hist,
 		likes:         likes,
+		st:            st,
 		wsHub:         hub,
 		lyricsJob:     &lyricsRetryJob{Status: "idle"},
 		playlistTasks: map[string]string{},
@@ -87,6 +90,8 @@ func (a *API) RegisterRoutes(r *gin.Engine) {
 		apiGroup.GET("/tasks", a.GetTasks)
 		apiGroup.GET("/downloads", a.GetDownloads)
 		apiGroup.DELETE("/downloads", a.DeleteDownload)
+		apiGroup.GET("/library", a.GetLibrary)
+		apiGroup.POST("/rescan", a.Rescan)
 		apiGroup.GET("/stream", a.StreamFile)
 		apiGroup.GET("/file/details", a.GetFileDetails)
 		apiGroup.GET("/cover", a.GetCover)

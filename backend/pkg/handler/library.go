@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"soneph-backend/pkg/storage"
 
@@ -17,6 +18,51 @@ func (a *API) GetDownloads(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"files": files})
+}
+
+// GetLibrary sert la bibliothèque depuis la base (M2 : SQLite source de
+// vérité) : nombre total + morceaux (artiste/album résolus), paginés via
+// limit/offset.
+func (a *API) GetLibrary(c *gin.Context) {
+	limit, offset := 200, 0
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	tracks, err := a.st.ListTracks(limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	count, err := a.st.CountTracks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count, "tracks": tracks})
+}
+
+// Rescan synchronise la bibliothèque avec le disque : scan delta par mtime
+// (jamais un scan complet d'écritures) puis upsert en base. Retourne les
+// compteurs du sync.
+func (a *API) Rescan(c *gin.Context) {
+	files, err := a.scanner.ListFiles()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	stats, err := a.st.SyncLibrary(files)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"stats": stats})
 }
 
 // FindDuplicates returns groups of library files that look like the same

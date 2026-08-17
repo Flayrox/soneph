@@ -1,6 +1,23 @@
 package handler
 
-import "testing"
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/history"
+	"soneph-backend/pkg/playlists"
+	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/store"
+	"soneph-backend/pkg/syncmgr"
+
+	"github.com/gin-gonic/gin"
+)
 
 func TestIsPlaylistLink(t *testing.T) {
 	cases := []struct {
@@ -20,5 +37,159 @@ func TestIsPlaylistLink(t *testing.T) {
 		if got := isPlaylistLink(c.url); got != c.want {
 			t.Errorf("isPlaylistLink(%q) = %v, want %v", c.url, got, c.want)
 		}
+	}
+}
+
+// newTestAPI construit une API complète sur des répertoires temporaires
+// (scanner, moteur, stores JSON isolés, auth désactivée) et un routeur gin
+// avec toutes les routes enregistrées — prête pour des tests de bout en bout
+// sans toucher à la config utilisateur ni au réseau.
+func newTestAPI(t *testing.T) (*gin.Engine, *API) {
+	t.Helper()
+	dir := t.TempDir()
+	// Isoler tous les emplacements d'état (fichiers JSON, config, file du
+	// moteur) pour ne jamais lire/écrire la config réelle de la machine.
+	t.Setenv("SONEPH_TOKEN", "")
+	t.Setenv("SONEPH_HISTORY_FILE", filepath.Join(dir, "history.json"))
+	t.Setenv("SONEPH_LIKES_FILE", filepath.Join(dir, "likes.json"))
+	t.Setenv("SONEPH_PLAYLISTS_DIR", filepath.Join(dir, "playlists"))
+	t.Setenv("SONEPH_CONFIG", filepath.Join(dir, "settings.json"))
+	t.Setenv("SONEPH_QUEUE_FILE", filepath.Join(dir, "queue.json"))
+
+	downloadDir := filepath.Join(dir, "downloads")
+	hub := NewWSHub()
+	dl := downloader.NewManager(downloadDir, hub.Broadcast)
+	sc := storage.NewScanner(downloadDir)
+	imp := syncmgr.New(downloadDir)
+	pls := playlists.New()
+	hist := history.New()
+	likes := history.NewLikes()
+	st, err := store.Open(filepath.Join(dir, "soneph.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := NewAPI(dl, sc, imp, pls, hist, likes, st, hub)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	api.RegisterRoutes(r)
+	return r, api
+}
+
+// TestRegisterRoutes couvre chaque endpoint de RegisterRoutes : code de
+// statut attendu (succès ET erreurs de validation) et présence des clés JSON
+// contractuelles. Verrouille la DoD M1 (« endpoints identiques ») dans CI.
+func TestRegisterRoutes(t *testing.T) {
+	r, _ := newTestAPI(t)
+	exportDir := filepath.Join(t.TempDir(), "export")
+
+	cases := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		wantKeys   []string // clés JSON contractuelles pour les succès
+	}{
+		// ── downloads ────────────────────────────────────────────────
+		{"download - body invalide", http.MethodPost, "/api/download", `{}`, http.StatusBadRequest, nil},
+		{"download - URL acceptée", http.MethodPost, "/api/download", `{"url":"https://example.com/track"}`, http.StatusAccepted, []string{"message", "task"}},
+		{"tasks", http.MethodGet, "/api/tasks", "", http.StatusOK, []string{"tasks"}},
+		{"downloads - bibliothèque vide", http.MethodGet, "/api/downloads", "", http.StatusOK, []string{"files"}},
+		{"library - base vide", http.MethodGet, "/api/library", "", http.StatusOK, []string{"count", "tracks"}},
+		{"rescan - base vide", http.MethodPost, "/api/rescan", "", http.StatusOK, []string{"stats"}},
+		{"delete download sans path", http.MethodDelete, "/api/downloads", "", http.StatusBadRequest, nil},
+		// Quirk existant : DeleteDownload ne mappe pas ErrInvalidPath sur 400
+		// (contrairement aux autres handlers) — le test fige le comportement actuel.
+		{"delete download chemin invalide", http.MethodDelete, "/api/downloads?path=../../etc/passwd", "", http.StatusInternalServerError, nil},
+
+		// ── tracks ───────────────────────────────────────────────────
+		{"stream sans path", http.MethodGet, "/api/stream", "", http.StatusBadRequest, nil},
+		{"stream chemin invalide", http.MethodGet, "/api/stream?path=../../etc/passwd", "", http.StatusBadRequest, nil},
+		{"file/details sans path", http.MethodGet, "/api/file/details", "", http.StatusBadRequest, nil},
+		{"file/details chemin invalide", http.MethodGet, "/api/file/details?path=../../etc/passwd", "", http.StatusBadRequest, nil},
+		{"cover sans path", http.MethodGet, "/api/cover", "", http.StatusBadRequest, nil},
+		{"cover chemin invalide", http.MethodGet, "/api/cover?path=../../etc/passwd", "", http.StatusBadRequest, nil},
+		{"lyrics sans path", http.MethodGet, "/api/lyrics", "", http.StatusBadRequest, nil},
+
+		// ── lyrics retry ─────────────────────────────────────────────
+		{"lyrics/retry - job démarré", http.MethodPost, "/api/lyrics/retry", "", http.StatusAccepted, []string{"message", "job"}},
+		{"lyrics/retry - statut", http.MethodGet, "/api/lyrics/retry", "", http.StatusOK, []string{"job"}},
+
+		// ── system ───────────────────────────────────────────────────
+		{"settings", http.MethodGet, "/api/settings", "", http.StatusOK, []string{"workers", "threads"}},
+		{"settings enregistrés", http.MethodPost, "/api/settings", `{"workers":2,"threads":3}`, http.StatusOK, []string{"message", "settings"}},
+		{"settings invalides", http.MethodPost, "/api/settings", `{"workers":"x"}`, http.StatusBadRequest, nil},
+
+		// ── playlists ────────────────────────────────────────────────
+		{"playlists - liste vide", http.MethodGet, "/api/playlists", "", http.StatusOK, []string{"playlists"}},
+		{"playlist créée", http.MethodPost, "/api/playlists", `{"name":"Roadtrip"}`, http.StatusCreated, []string{"playlist"}},
+		// Quirk existant : un name vide crée quand même une playlist (le store
+		// la nomme « Playlist ») — le test fige le comportement actuel.
+		{"playlist sans name - nommée par défaut", http.MethodPost, "/api/playlists", `{}`, http.StatusCreated, []string{"playlist"}},
+		{"playlist introuvable", http.MethodGet, "/api/playlists/pl_zzz", "", http.StatusNotFound, nil},
+		{"delete playlist introuvable", http.MethodDelete, "/api/playlists/pl_zzz", "", http.StatusNotFound, nil},
+		{"add track playlist introuvable", http.MethodPost, "/api/playlists/pl_zzz/tracks", `{"path":"a.mp3"}`, http.StatusNotFound, nil},
+		{"remove track playlist introuvable", http.MethodDelete, "/api/playlists/pl_zzz/tracks?path=a.mp3", "", http.StatusNotFound, nil},
+		{"reorder playlist introuvable", http.MethodPost, "/api/playlists/pl_zzz/order", `{"paths":["a.mp3"]}`, http.StatusNotFound, nil},
+		{"playlists/export - aucune playlist", http.MethodPost, "/api/playlists/export", `{"dir":"` + exportDir + `"}`, http.StatusOK, []string{"dir", "files", "count"}},
+		{"playlists/export sans dir", http.MethodPost, "/api/playlists/export", `{}`, http.StatusBadRequest, nil},
+
+		// ── history / stats / likes ──────────────────────────────────
+		{"scrobble enregistré", http.MethodPost, "/api/scrobble", `{"path":"a.mp3","duration":180}`, http.StatusOK, []string{"message"}},
+		{"scrobble sans path", http.MethodPost, "/api/scrobble", `{}`, http.StatusBadRequest, nil},
+		{"history/recent", http.MethodGet, "/api/history/recent", "", http.StatusOK, []string{"history"}},
+		{"history/top", http.MethodGet, "/api/history/top", "", http.StatusOK, []string{"top"}},
+		{"stats", http.MethodGet, "/api/stats", "", http.StatusOK, []string{}},
+		{"likes - liste", http.MethodGet, "/api/likes", "", http.StatusOK, []string{"likes"}},
+		{"like ajouté", http.MethodPost, "/api/likes", `{"path":"a.mp3"}`, http.StatusOK, []string{"message"}},
+		{"like sans path", http.MethodPost, "/api/likes", `{}`, http.StatusBadRequest, nil},
+		{"unlike sans path", http.MethodDelete, "/api/likes", "", http.StatusBadRequest, nil},
+		{"unlike", http.MethodDelete, "/api/likes?path=a.mp3", "", http.StatusOK, []string{"message"}},
+
+		// ── sync ─────────────────────────────────────────────────────
+		{"sync/status", http.MethodGet, "/api/sync/status", "", http.StatusOK, []string{"platform", "downloads_dir"}},
+		// Le watcher n'existe que sur macOS avec scripts/watch_and_import.sh :
+		// en environnement de test il est toujours indisponible → 409.
+		{"sync/start - watcher indisponible", http.MethodPost, "/api/sync/start", "", http.StatusConflict, nil},
+		{"sync/stop", http.MethodPost, "/api/sync/stop", "", http.StatusOK, nil},
+
+		// ── library / dedup ──────────────────────────────────────────
+		{"duplicates", http.MethodGet, "/api/duplicates", "", http.StatusOK, []string{"groups", "total"}},
+		{"duplicates/remove sans paths", http.MethodPost, "/api/duplicates/remove", `{}`, http.StatusBadRequest, nil},
+
+		// ── websocket ────────────────────────────────────────────────
+		// Un GET HTTP classique sur /ws n'est pas un handshake WebSocket.
+		{"ws - handshake HTTP refusé", http.MethodGet, "/api/ws", "", http.StatusBadRequest, nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("%s %s → %d, want %d (body: %s)", tc.method, tc.path, w.Code, tc.wantStatus, w.Body.String())
+			}
+			if len(tc.wantKeys) == 0 {
+				return
+			}
+			var resp map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("%s %s → réponse non-JSON : %v (body: %s)", tc.method, tc.path, err, w.Body.String())
+			}
+			for _, k := range tc.wantKeys {
+				if _, ok := resp[k]; !ok {
+					t.Errorf("%s %s → clé JSON %q absente (body: %s)", tc.method, tc.path, k, w.Body.String())
+				}
+			}
+		})
 	}
 }

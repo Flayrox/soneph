@@ -13,6 +13,7 @@ import (
 	"soneph-backend/pkg/history"
 	"soneph-backend/pkg/playlists"
 	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/store"
 	"soneph-backend/pkg/syncmgr"
 	"strings"
 	"time"
@@ -83,7 +84,32 @@ func main() {
 	playlistStore := playlists.New()
 	historyStore := history.New()
 	likesStore := history.NewLikes()
-	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore, wsHub)
+
+	// SQLite : source de vérité (M2). Migrations goose appliquées à
+	// l'ouverture ; le scan initial (boot) peuple la base — les syncs
+	// suivants sont des deltas par mtime (POST /api/rescan).
+	dbPath := os.Getenv("SONEPH_DB")
+	if dbPath == "" {
+		d, err := os.UserConfigDir()
+		if err != nil {
+			d = "."
+		}
+		dbPath = filepath.Join(d, "soneph", "soneph.db")
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		slog.Error("ouverture de la base impossible", "path", dbPath, "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+	if files, err := scanner.ListFiles(); err == nil {
+		stats, _ := st.SyncLibrary(files)
+		slog.Info("scan initial (boot)", "db", dbPath, "scanned", stats.Scanned, "added", stats.Added, "updated", stats.Updated)
+	} else {
+		slog.Warn("scan initial impossible", "err", err)
+	}
+
+	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore, st, wsHub)
 
 	r := gin.Default()
 
