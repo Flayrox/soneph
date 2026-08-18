@@ -37,7 +37,6 @@ WORKDIR /app
 # Copy binary (contains the embedded frontend) and post-processing scripts
 COPY --from=builder /app/soneph-server /app/soneph-server
 COPY backend/embed_lyrics.py /app/embed_lyrics.py
-COPY backend/fast_filter.py /app/fast_filter.py
 COPY backend/lyrics_retry.py /app/lyrics_retry.py
 COPY backend/patch_lyrics_timeout.py /app/patch_lyrics_timeout.py
 

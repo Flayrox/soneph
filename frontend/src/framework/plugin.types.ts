@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
-import type { DownloadedFile, DownloadTask, Playlist, PlaylistSummary } from "@/types";
+import type { DownloadedFile, DownloadTask, JobRow, Playlist, PlaylistSummary } from "@/types";
 import type { Pin } from "@/pins";
 
 // ── The plugin contract ──────────────────────────────────────────────────
@@ -86,6 +86,9 @@ export interface PluginApp {
   setNav: (nav: string) => void;
   files: DownloadedFile[];
   tasks: DownloadTask[];
+  /** File M4 (jobs table) : download, fast_filter… — poussée en direct par
+   *  « job_update » sur le WebSocket (M4/M5). */
+  jobs: JobRow[];
   playlists: PlaylistSummary[];
   playlistDetail: Playlist | null;
   likes: Set<string>;

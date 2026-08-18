@@ -5,11 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"soneph-backend/pkg/config"
+	"soneph-backend/pkg/fastfilter"
+	"soneph-backend/pkg/jobs"
+	"soneph-backend/pkg/store"
+	"soneph-backend/pkg/tags"
 	"sort"
 	"strconv"
 	"strings"
@@ -168,6 +174,15 @@ type Manager struct {
 	persistPath  string
 	onFilesMoved func(moves []FileMove)
 	onTaskDone   func(task *DownloadTask)
+	// jobs (M4) : quand non nil, la file est la table jobs — dequeue
+	// atomique, backoff exponentiel et circuit breaker par source.
+	jobs *jobs.Queue
+
+	// filterResults (M5) : résultat du job fast_filter par tâche, appliqué
+	// par ApplyFastFilter puis consommé par runTask (pré-création des
+	// dossiers d'album) et nettoyé. En mode hérité (sans file), le filtre
+	// s'exécute directement dans runTask.
+	filterResults map[string]fastfilter.Result
 
 	// Cache de la carte d'identité (URL Spotify → chemins) : la lire relit
 	// les tags ID3 de TOUTE la bibliothèque (~1 s pour 136 fichiers, bien
@@ -283,20 +298,30 @@ func envInt(name string, def int) int {
 	return def
 }
 
-func NewManager(downloadDir string, broadcastFn func(event string, data interface{})) *Manager {
+func NewManager(downloadDir string, broadcastFn func(event string, data interface{}), jobQueues ...*jobs.Queue) *Manager {
 	if downloadDir == "" {
 		downloadDir = "./downloads"
 	}
 	_ = os.MkdirAll(downloadDir, 0755)
 
 	m := &Manager{
-		tasks:       make(map[string]*DownloadTask),
-		queue:       make(chan *DownloadTask, 100),
-		downloadDir: downloadDir,
-		broadcastFn: broadcastFn,
-		persistPath: queuePath(),
+		tasks:         make(map[string]*DownloadTask),
+		queue:         make(chan *DownloadTask, 100),
+		downloadDir:   downloadDir,
+		broadcastFn:   broadcastFn,
+		persistPath:   queuePath(),
+		filterResults: make(map[string]fastfilter.Result),
 	}
-	m.recoverQueue()
+	if len(jobQueues) > 0 {
+		m.jobs = jobQueues[0]
+		// La file est la table jobs : les tâches 'running' d'un processus
+		// mort (kill -9) sont relancées au démarrage.
+		if err := m.jobs.RequeueOrphaned(); err != nil {
+			slog.Error("relance des jobs orphelins impossible", "err", err)
+		}
+	} else {
+		m.recoverQueue()
+	}
 
 	// Parallel engine processes (one per queued URL). Keep this modest:
 	// each process already downloads several tracks concurrently, and going
@@ -334,9 +359,105 @@ func (m *Manager) AddTask(url string, bitrate string, order string) *DownloadTas
 	m.mu.Unlock()
 
 	m.notifyUpdate(task)
-	m.queue <- task
-	m.persist()
+	if m.jobs != nil {
+		// M5 : le fast filter (Go) tourne d'abord en tant que job asynchrone
+		// dans la file M4. À son terme, le worker fast_filter applique le
+		// résultat à la tâche et ré-enfile le téléchargement (même task_id).
+		payload, _ := json.Marshal(fastfilter.Payload{TaskID: id, URL: url, Bitrate: bitrate, Order: order})
+		if err := m.jobs.Enqueue(store.Job{ID: "ff_" + id, Type: "fast_filter", Payload: string(payload)}); err != nil {
+			slog.Error("job fast_filter non enfilé", "task", id, "err", err)
+		}
+	} else {
+		m.queue <- task
+		m.persist()
+	}
 	return task
+}
+
+// ApplyFastFilter (M5) applique le résultat du job fast_filter à la tâche :
+// totaux, morceaux déjà sur disque, logs — et le mémorise pour runTask
+// (pré-création des dossiers d'album). Appelé par le worker fast_filter
+// AVANT de ré-enfiler le téléchargement.
+func (m *Manager) ApplyFastFilter(p fastfilter.Payload, res fastfilter.Result) {
+	m.mu.Lock()
+	task, ok := m.tasks[p.TaskID]
+	if !ok {
+		// Backend redémarré entre le filtre et le téléchargement : on
+		// reconstruit une tâche minimale depuis le payload (taskFromJob fait
+		// pareil côté worker download).
+		task = &DownloadTask{
+			ID:           p.TaskID,
+			URL:          p.URL,
+			Bitrate:      p.Bitrate,
+			Order:        p.Order,
+			Status:       StatusQueued,
+			Progress:     "Instant scanning disk for existing songs...",
+			Logs:         []string{},
+			RecentTracks: []string{},
+			CreatedAt:    time.Now(),
+		}
+		m.tasks[p.TaskID] = task
+	}
+	m.filterResults[p.TaskID] = res
+	m.mu.Unlock()
+
+	m.applyFilterResult(task, res)
+	m.notifyUpdate(task)
+}
+
+// EnqueueDownload (M5) ré-enfile le téléchargement après un fast filter
+// réussi : la tâche existante (même task_id) est reprise par le worker
+// download. Appelé par le worker fast_filter dans main.go.
+func (m *Manager) EnqueueDownload(p fastfilter.Payload) {
+	if m.jobs == nil {
+		return
+	}
+	payload, _ := json.Marshal(jobs.PayloadDownload{URL: p.URL, Bitrate: p.Bitrate, Order: p.Order})
+	if err := m.jobs.Enqueue(store.Job{ID: p.TaskID, Type: "download", Payload: string(payload)}); err != nil {
+		slog.Error("job download non ré-enfilé après filtre", "task", p.TaskID, "err", err)
+	}
+}
+
+// takeFilterResult lit (et efface) le résultat du fast filter mémorisé pour
+// une tâche. En mode file jobs, le filtre a déjà tourné : runTask le
+// consomme pour l'étape de pré-création des dossiers. Sans résultat, c'est
+// le mode hérité (le filtre s'exécute dans runTask).
+func (m *Manager) takeFilterResult(taskID string) (fastfilter.Result, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res, ok := m.filterResults[taskID]
+	if ok {
+		delete(m.filterResults, taskID)
+	}
+	return res, ok
+}
+
+// applyFilterResult met à jour la tâche depuis le résultat du fast filter
+// (mêmes effets que l'ancien pipeline Python) : totaux, liste « déjà sur
+// disque », logs, et passage « all tracks present » quand tout est là.
+func (m *Manager) applyFilterResult(task *DownloadTask, res fastfilter.Result) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if res.Applied {
+		task.TotalTracks = res.TotalTracks
+		task.CompletedCount = res.AlreadyDownloaded
+		for _, s := range res.SkippedTracks {
+			task.RecentTracks = append([]string{s + " (déjà sur disque)"}, task.RecentTracks...)
+		}
+		task.Logs = append(task.Logs, fmt.Sprintf("[%s] Fast filter complete: %d songs already on disk, %d missing.", time.Now().Format("15:04:05"), res.AlreadyDownloaded, res.MissingCount))
+		if res.MissingCount == 0 {
+			// Tout est déjà sur disque : on lance quand même le moteur en
+			// mode métadonnées. Il détecte les singles téléchargés avant leur
+			// album et met à jour leurs tags (album, pochette…) sans
+			// re-télécharger l'audio.
+			task.Progress = "All tracks present — metadata upgrade pass (singles → albums)..."
+			task.Logs = append(task.Logs, fmt.Sprintf("[%s] All %d tracks present on disk — mise à jour des métadonnées (singles → albums).", time.Now().Format("15:04:05"), res.TotalTracks))
+		}
+	} else if res.Reason != "" {
+		// Filtre désactivé (ex. playlist > 100 titres, API embed plafonnée) :
+		// on l'explique dans les logs au lieu de montrer des chiffres faux.
+		task.Logs = append(task.Logs, fmt.Sprintf("[%s] ⚠️ %s", time.Now().Format("15:04:05"), res.Reason))
+	}
 }
 
 // SetOnFilesMoved enregistre le callback appelé quand le moteur a déplacé
@@ -373,16 +494,12 @@ func (m *Manager) Broadcast(event string, data interface{}) {
 // runScanIdentity lance le scan complet (lecture des tags WOAS de tous les
 // MP3) et renvoie la carte {identité → chemins}. Plusieurs fichiers peuvent
 // partager la même identité (même morceau sur plusieurs albums) : on garde
-// la liste complète.
+// la liste complète. M6 : port Go de scan_identity.py (pkg/tags.IdentityMap)
+// — plus de sous-processus Python.
 func (m *Manager) runScanIdentity() map[string][]string {
-	out := map[string][]string{}
-	cmd := exec.Command(GetPythonExec(), GetScriptPath("scan_identity.py"), m.downloadDir)
-	data, err := cmd.Output()
+	out, err := tags.IdentityMap(m.downloadDir)
 	if err != nil {
-		return out
-	}
-	if err := json.Unmarshal(data, &out); err != nil {
-		return out
+		return map[string][]string{}
 	}
 	return out
 }
@@ -542,9 +659,100 @@ func (m *Manager) notifyUpdate(task *DownloadTask) {
 }
 
 func (m *Manager) worker() {
+	if m.jobs != nil {
+		m.workerJobs()
+		return
+	}
 	for task := range m.queue {
 		m.runTask(task)
 	}
+}
+
+// workerJobs est le worker M4 : il réclame un job 'download' (dequeue
+// atomique + circuit breaker par source), l'exécute, puis clôture ou
+// reprogramme (backoff exponentiel) selon le résultat.
+func (m *Manager) workerJobs() {
+	for {
+		job, err := m.jobs.Dequeue("download")
+		if err != nil {
+			slog.Error("dequeue échoué", "err", err)
+			time.Sleep(jobs.PollInterval)
+			continue
+		}
+		if job == nil {
+			time.Sleep(jobs.PollInterval)
+			continue
+		}
+		task := m.taskFromJob(job)
+		m.runTask(task)
+
+		source := jobsSource(task.URL)
+		m.mu.RLock()
+		errMsg := task.Error
+		succeeded := task.Status == StatusCompleted
+		m.mu.RUnlock()
+
+		switch {
+		case succeeded:
+			if err := m.jobs.Complete(job.ID, source, ""); err != nil {
+				slog.Error("job non clôturé", "id", job.ID, "err", err)
+			}
+		case job.Attempts >= job.MaxAttempts:
+			if err := m.jobs.Complete(job.ID, source, errMsg); err != nil {
+				slog.Error("job non clôturé", "id", job.ID, "err", err)
+			}
+		default:
+			// Nouvelle tentative différée (backoff 2^attempts × base) ; la
+			// tâche reste visible dans l'UI comme « queued ».
+			if err := m.jobs.ScheduleRetry(job.ID, job.Attempts); err != nil {
+				slog.Error("retry non programmé", "id", job.ID, "err", err)
+			}
+			m.mu.Lock()
+			task.Status = StatusQueued
+			task.Error = ""
+			task.Progress = "Échec — nouvelle tentative programmée automatiquement"
+			task.Logs = append(task.Logs, fmt.Sprintf("[%s] Échec — nouvelle tentative programmée (tentative %d/%d).", time.Now().Format("15:04:05"), job.Attempts+1, job.MaxAttempts))
+			m.mu.Unlock()
+			m.notifyUpdate(task)
+		}
+	}
+}
+
+// taskFromJob retrouve la tâche en mémoire (AddTask) ou la reconstruit depuis
+// le payload du job après un redémarrage.
+func (m *Manager) taskFromJob(job *store.Job) *DownloadTask {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t, ok := m.tasks[job.ID]; ok {
+		return t
+	}
+	var p jobs.PayloadDownload
+	_ = json.Unmarshal([]byte(job.Payload), &p)
+	if p.URL == "" {
+		p.URL = job.ID
+	}
+	t := &DownloadTask{
+		ID:           job.ID,
+		URL:          p.URL,
+		Bitrate:      p.Bitrate,
+		Order:        p.Order,
+		Status:       StatusQueued,
+		Progress:     "Relancé après redémarrage",
+		Logs:         []string{fmt.Sprintf("[%s] Task recovered from job queue after restart.", time.Now().Format("15:04:05"))},
+		RecentTracks: []string{},
+		CreatedAt:    time.Now(),
+	}
+	m.tasks[job.ID] = t
+	return t
+}
+
+// jobsSource extrait l'hôte (circuit breaker) de l'URL d'une tâche.
+func jobsSource(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 func (m *Manager) runTask(task *DownloadTask) {
@@ -570,49 +778,17 @@ func (m *Manager) runTask(task *DownloadTask) {
 	identityBefore := m.scanIdentity()
 
 	pythonExec := GetPythonExec()
-	fastFilterScript := GetScriptPath("fast_filter.py")
 
-	// Instant Pre-Filter Execution in Python
-	ffCmd := exec.Command(pythonExec, fastFilterScript, m.downloadDir, task.URL)
-	ffOutput, ffErr := ffCmd.Output()
-	var ffResult struct {
-		FastFilterApplied bool     `json:"fast_filter_applied"`
-		Reason            string   `json:"reason"`
-		TotalTracks       int      `json:"total_tracks"`
-		AlreadyDownloaded int      `json:"already_downloaded_count"`
-		MissingCount      int      `json:"missing_count"`
-		SkippedTracks     []string `json:"skipped_tracks"`
-		MissingQueries    []string `json:"missing_queries"`
-	}
-	if ffErr == nil {
-		if jsonErr := json.Unmarshal(ffOutput, &ffResult); jsonErr == nil && ffResult.FastFilterApplied {
-			m.mu.Lock()
-			task.TotalTracks = ffResult.TotalTracks
-			task.CompletedCount = ffResult.AlreadyDownloaded
-			for _, s := range ffResult.SkippedTracks {
-				task.RecentTracks = append([]string{s + " (déjà sur disque)"}, task.RecentTracks...)
-			}
-			task.Logs = append(task.Logs, fmt.Sprintf("[%s] Fast filter complete: %d songs already on disk, %d missing.", time.Now().Format("15:04:05"), ffResult.AlreadyDownloaded, ffResult.MissingCount))
-			m.mu.Unlock()
-			m.notifyUpdate(task)
-
-			if ffResult.MissingCount == 0 {
-				// Tout est déjà sur disque : on lance quand même le moteur en
-				// mode métadonnées. Il détecte les singles téléchargés avant
-				// leur album et met à jour leurs tags (album, pochette…) sans
-				// re-télécharger l'audio.
-				m.mu.Lock()
-				task.Progress = "All tracks present — metadata upgrade pass (singles → albums)..."
-				task.Logs = append(task.Logs, fmt.Sprintf("[%s] All %d tracks present on disk — mise à jour des métadonnées (singles → albums).", time.Now().Format("15:04:05"), ffResult.TotalTracks))
-				m.mu.Unlock()
-				m.notifyUpdate(task)
-			}
-		} else if ffResult.Reason != "" {
-			// Filtre désactivé (ex. playlist > 100 titres, API embed plafonnée) :
-			// on l'explique dans les logs au lieu de montrer des chiffres faux.
-			m.appendLog(task, fmt.Sprintf("[%s] ⚠️ %s", time.Now().Format("15:04:05"), ffResult.Reason))
-			m.notifyUpdate(task)
-		}
+	// M5 : le fast filter est porté en Go (pkg/fastfilter) et tourne en tant
+	// que job asynchrone dans la file M4 — son résultat a été appliqué à la
+	// tâche par ApplyFastFilter et mémorisé dans m.filterResults (pré-création
+	// des dossiers d'album). En mode hérité (sans file jobs), on l'exécute ici
+	// même, en process, sans Python.
+	ffResult, haveResult := m.takeFilterResult(task.ID)
+	if !haveResult {
+		ffResult = fastfilter.Run(m.downloadDir, task.URL, nil)
+		m.applyFilterResult(task, ffResult)
+		m.notifyUpdate(task)
 	}
 
 	outputTemplate := filepath.Join(m.downloadDir, "{artist}", "{album}", "{title}.mp3")
@@ -630,7 +806,7 @@ func (m *Manager) runTask(task *DownloadTask) {
 	// donc que quand le fast filter prouve que des morceaux de l'URL sont
 	// déjà sur disque (cas single → album) ET que la liste est petite, et on
 	// le borne à 30 s pour ne jamais bloquer la file.
-	runPrecreate := ffErr == nil && ffResult.FastFilterApplied &&
+	runPrecreate := ffResult.Applied &&
 		ffResult.AlreadyDownloaded > 0 &&
 		ffResult.TotalTracks > 0 && ffResult.TotalTracks <= 200
 	if runPrecreate {
@@ -857,10 +1033,10 @@ func (m *Manager) fetchLyricsInBackground(task *DownloadTask) {
 	// 1. Marqueur soneph dans les métadonnées (idempotent) : chaque fichier
 	//    porte un tag TXXX:SONEPH + sa source, pour que l'app sache d'où
 	//    vient chaque morceau même si le fichier bouge (single → album).
-	tagScript := GetScriptPath("tag_soneph.py")
-	tagCmd := exec.Command(pythonExec, tagScript, m.downloadDir, task.URL)
-	if tagOut, tagErr := tagCmd.CombinedOutput(); tagErr == nil && len(strings.TrimSpace(string(tagOut))) > 0 {
-		m.appendLog(task, fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), strings.TrimSpace(string(tagOut))))
+	//    Port Go de tag_soneph.py (pkg/tags.StampSoneph) : plus aucun
+	//    sous-processus Python pour cette étape.
+	if n, tagErr := tags.StampSoneph(m.downloadDir, task.URL); tagErr == nil && n > 0 {
+		m.appendLog(task, fmt.Sprintf("[%s] SONEPH tags: %d fichier(s) marqué(s) dans les métadonnées.", time.Now().Format("15:04:05"), n))
 		m.notifyUpdate(task)
 	}
 

@@ -156,6 +156,54 @@ func TestEngineMissingMessage(t *testing.T) {
 	}
 }
 
+// buildMP3WithWOAS écrit un MP3 ID3v2.3 minimal portant un tag WOAS — pour
+// tester la carte d'identité Go (pkg/tags.IdentityMap, port de
+// scan_identity.py) sans sous-processus Python.
+func buildMP3WithWOAS(t *testing.T, dir, relPath, woas string) {
+	t.Helper()
+	url := []byte(woas)
+	frame := append([]byte("WOAS"), byte(len(url)>>24), byte(len(url)>>16), byte(len(url)>>8), byte(len(url)))
+	frame = append(append(frame, 0, 0), url...)
+	header := []byte{'I', 'D', '3', 3, 0, 0,
+		byte(len(frame) >> 21 & 0x7F), byte(len(frame) >> 14 & 0x7F), byte(len(frame) >> 7 & 0x7F), byte(len(frame) & 0x7F)}
+	full := filepath.Join(dir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(full, append(header, frame...), 0o644); err != nil {
+		t.Fatalf("écriture du MP3: %v", err)
+	}
+}
+
+// TestScanIdentityMapGo vérifie que runScanIdentity lit les tags WOAS en
+// Go (port de scan_identity.py) : clé "url:<WOAS>", rel_path, et exclusion
+// des fichiers sans WOAS.
+func TestScanIdentityMapGo(t *testing.T) {
+	dir := t.TempDir()
+	buildMP3WithWOAS(t, dir, "Ninho/Vrais.mp3", "https://open.spotify.com/track/aaa")
+	buildMP3WithWOAS(t, dir, "Jul/Zone.mp3.mp3", "https://open.spotify.com/track/bbb")
+	// Sans WOAS → absent de la carte.
+	if err := os.WriteFile(filepath.Join(dir, "Other.mp3"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(dir, nil)
+	got := m.runScanIdentity()
+
+	want := map[string][]string{
+		"url:https://open.spotify.com/track/aaa": {"Ninho/Vrais.mp3"},
+		"url:https://open.spotify.com/track/bbb": {"Jul/Zone.mp3.mp3"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("carte = %v, want %d entrées", got, len(want))
+	}
+	for k, v := range want {
+		if !strings.EqualFold(strings.Join(got[k], ","), strings.Join(v, ",")) {
+			t.Errorf("carte[%q] = %v, want %v", k, got[k], v)
+		}
+	}
+}
+
 // TestDiffMoves vérifie la détection des fichiers déplacés (single → album) :
 // même identité (URL Spotify), rel_path différent → un FileMove est émis.
 // Une suppression seule ne doit PAS être traitée comme un déplacement.

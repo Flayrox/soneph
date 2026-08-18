@@ -32,6 +32,23 @@ export interface DownloadTask {
   error?: string;
 }
 
+/** Ligne de la table jobs (file M4) — panneau « jobs » du DownloadsView. */
+export interface JobRow {
+  id: string;
+  type: string;
+  payload: string;
+  status: "queued" | "running" | "done" | "failed";
+  priority: number;
+  attempts: number;
+  max_attempts: number;
+  error?: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  /** Prochaine échéance d'un retry (backoff M4) — compte à rebours. */
+  retry_at?: string | null;
+}
+
 export interface PlaylistSummary {
   id: string;
   name: string;
@@ -54,4 +71,24 @@ export interface HistoryRecord {
 export interface TopTrack {
   path: string;
   plays: number;
+}
+
+/** Résultat de GET /api/search — forme JSON d'une ligne de la table tracks. */
+export interface SearchTrack {
+  id: number;
+  path: string;
+  title: string;
+  artist?: string;
+  album?: string;
+  track_no?: number;
+  duration_ms?: number;
+  bitrate?: number;
+  format?: string;
+  size_bytes?: number;
+  isrc?: string;
+  lyrics_path?: string;
+  lyrics_synced?: boolean;
+  quality_score?: number;
+  added_at: string;
+  updated_at: string;
 }

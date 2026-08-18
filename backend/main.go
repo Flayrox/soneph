@@ -2,20 +2,23 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"soneph-backend/pkg/auth"
-	"soneph-backend/pkg/downloader"
-	"soneph-backend/pkg/handler"
-	"soneph-backend/pkg/history"
-	"soneph-backend/pkg/playlists"
-	"soneph-backend/pkg/storage"
-	"soneph-backend/pkg/syncmgr"
 	"strings"
 	"time"
+
+	"soneph-backend/pkg/auth"
+	"soneph-backend/pkg/downloader"
+	"soneph-backend/pkg/fastfilter"
+	"soneph-backend/pkg/handler"
+	"soneph-backend/pkg/jobs"
+	"soneph-backend/pkg/storage"
+	"soneph-backend/pkg/store"
+	"soneph-backend/pkg/syncmgr"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -28,6 +31,83 @@ import (
 //
 //go:embed web/dist
 var webDist embed.FS
+
+// legacyPlaylistFile est la forme JSON d'une playlist pré-M3 (un fichier par
+// playlist dans le dossier playlists).
+type legacyPlaylistFile struct {
+	Name   string   `json:"name"`
+	Tracks []string `json:"tracks"`
+}
+
+// importLegacyPlaylists migre une seule fois les playlists JSON (pré-M3)
+// vers la base. Les pins de playlists qui référencent un ancien id sont
+// réécrits vers le nouvel id. Retourne le nombre de playlists importées.
+func importLegacyPlaylists(st store.Store) int {
+	// Déjà fait, ou des playlists existent déjà en base : rien à faire.
+	if v, _ := st.GetSetting("playlists_migrated"); v == "1" {
+		return 0
+	}
+	if pls, _ := st.ListPlaylists(); len(pls) > 0 {
+		_ = st.SetSetting("playlists_migrated", "1")
+		return 0
+	}
+
+	dir := os.Getenv("SONEPH_PLAYLISTS_DIR")
+	if dir == "" {
+		d, err := os.UserConfigDir()
+		if err != nil {
+			d = "."
+		}
+		dir = filepath.Join(d, "soneph", "playlists")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// Aucun dossier legacy : on marque quand même la migration faite.
+		_ = st.SetSetting("playlists_migrated", "1")
+		return 0
+	}
+
+	idMap := map[string]string{} // ancien id → nouvel id
+	imported := 0
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var pl legacyPlaylistFile
+		if json.Unmarshal(data, &pl) != nil {
+			continue
+		}
+		created, err := st.CreatePlaylist(pl.Name)
+		if err != nil {
+			slog.Warn("import playlist legacy échoué", "file", e.Name(), "err", err)
+			continue
+		}
+		for _, track := range pl.Tracks {
+			_, _ = st.AddPlaylistTrack(created.ID, track)
+		}
+		idMap[strings.TrimSuffix(e.Name(), ".json")] = created.ID
+		imported++
+	}
+
+	// Les pins de playlists pointaient vers les anciens ids : réécriture.
+	if pins, err := st.ListPins(); err == nil {
+		for _, p := range pins {
+			if p.Kind == "playlist" {
+				if newID, ok := idMap[p.Value]; ok && newID != p.Value {
+					_ = st.RemovePin(p.Kind, p.Value)
+					_ = st.AddPin(p.Kind, newID)
+				}
+			}
+		}
+	}
+
+	_ = st.SetSetting("playlists_migrated", "1")
+	return imported
+}
 
 func main() {
 	// Structured logs. Default = text; LOG_FORMAT=json for machines.
@@ -67,7 +147,40 @@ func main() {
 
 	wsHub := handler.NewWSHub()
 
-	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast)
+	// SQLite : source de vérité (M2). Migrations goose appliquées à
+	// l'ouverture ; le scan initial (boot) peuple la base — les syncs
+	// suivants sont des deltas par mtime (POST /api/rescan). Ouverte avant
+	// le téléchargeur : la file de téléchargement vit dans la table jobs (M4).
+	dbPath := os.Getenv("SONEPH_DB")
+	if dbPath == "" {
+		d, err := os.UserConfigDir()
+		if err != nil {
+			d = "."
+		}
+		dbPath = filepath.Join(d, "soneph", "soneph.db")
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		slog.Error("ouverture de la base impossible", "path", dbPath, "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	// La file de téléchargement vit dans la table jobs (M4) ; chaque
+	// transition d'état (queued → running → done/failed/retry) est poussée
+	// en direct sur le WebSocket — le front voit la file sans polling.
+	jobQueue := jobs.New(st).WithBroadcast(wsHub.Broadcast)
+	dlManager := downloader.NewManager(downloadDir, wsHub.Broadcast, jobQueue)
+
+	// M5 : le fast filter (Go) est un job asynchrone de la file M4. Son
+	// worker applique le résultat à la tâche puis ré-enfile le
+	// téléchargement (même task_id) — l'utilisateur voit « X déjà sur
+	// disque, Y à télécharger » avant même que spotdl démarre.
+	ffWorker := fastfilter.NewWorker(jobQueue, downloadDir, func(p fastfilter.Payload, res fastfilter.Result) {
+		dlManager.ApplyFastFilter(p, res)
+		dlManager.EnqueueDownload(p)
+	})
+	go ffWorker.Run()
 
 	// Diagnostic précoce : si le moteur de téléchargement n'est pas installé
 	// (ou hors PATH), chaque tâche échouera. On le signale dès le démarrage
@@ -80,10 +193,18 @@ func main() {
 	}
 	scanner := storage.NewScanner(downloadDir)
 	importer := syncmgr.New(downloadDir)
-	playlistStore := playlists.New()
-	historyStore := history.New()
-	likesStore := history.NewLikes()
-	api := handler.NewAPI(dlManager, scanner, importer, playlistStore, historyStore, likesStore)
+
+	if files, err := scanner.ListFiles(); err == nil {
+		stats, _ := st.SyncLibrary(files)
+		slog.Info("scan initial (boot)", "db", dbPath, "scanned", stats.Scanned, "added", stats.Added, "updated", stats.Updated)
+	} else {
+		slog.Warn("scan initial impossible", "err", err)
+	}
+	if imported := importLegacyPlaylists(st); imported > 0 {
+		slog.Info("playlists JSON migrées vers SQLite", "count", imported)
+	}
+
+	api := handler.NewAPI(dlManager, scanner, importer, st, wsHub)
 
 	r := gin.Default()
 
@@ -91,54 +212,16 @@ func main() {
 	// Bearer token header, not cookies, so credentials stay disabled.
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:  []string{"*"},
-		AllowMethods:  []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Auth-Token"},
 		ExposeHeaders: []string{"Content-Length"},
 		MaxAge:        12 * time.Hour,
 	}))
 
-	// API Routes — protected by an optional token (SONEPH_TOKEN) and a
-	// per-IP rate limit. The WebSocket handshake lives here too, so it
-	// inherits the same checks (token via ?token= query param).
-	apiGroup := r.Group("/api")
-	apiGroup.Use(auth.RequireToken(), auth.RateLimit(120, time.Minute))
-	{
-		apiGroup.POST("/download", api.CreateDownload)
-		apiGroup.GET("/tasks", api.GetTasks)
-		apiGroup.GET("/downloads", api.GetDownloads)
-		apiGroup.DELETE("/downloads", api.DeleteDownload)
-		apiGroup.GET("/stream", api.StreamFile)
-		apiGroup.GET("/file/details", api.GetFileDetails)
-		apiGroup.GET("/cover", api.GetCover)
-		apiGroup.GET("/lyrics", api.GetLyrics)
-		apiGroup.GET("/lyrics/missing", api.ScanMissingLyrics)
-		apiGroup.POST("/lyrics/retry", api.RetryLyrics)
-		apiGroup.GET("/lyrics/retry", api.GetLyricsJobStatus)
-		apiGroup.GET("/settings", api.GetSettings)
-		apiGroup.POST("/settings", api.SaveSettings)
-		apiGroup.GET("/playlists", api.ListPlaylists)
-		apiGroup.POST("/playlists", api.CreatePlaylist)
-		apiGroup.POST("/playlists/from-url", api.CreatePlaylistFromURL)
-		apiGroup.DELETE("/playlists/:id", api.DeletePlaylist)
-		apiGroup.GET("/playlists/:id", api.GetPlaylist)
-		apiGroup.POST("/playlists/:id/tracks", api.AddPlaylistTrack)
-		apiGroup.DELETE("/playlists/:id/tracks", api.RemovePlaylistTrack)
-		apiGroup.POST("/playlists/:id/order", api.ReorderPlaylist)
-		apiGroup.POST("/scrobble", api.Scrobble)
-		apiGroup.GET("/history/recent", api.GetRecentHistory)
-		apiGroup.GET("/history/top", api.GetTopTracks)
-		apiGroup.GET("/stats", api.GetStats)
-		apiGroup.GET("/likes", api.GetLikes)
-		apiGroup.POST("/likes", api.AddLike)
-		apiGroup.DELETE("/likes", api.RemoveLike)
-		apiGroup.GET("/sync/status", api.GetSyncStatus)
-		apiGroup.POST("/sync/start", api.StartSync)
-		apiGroup.POST("/sync/stop", api.StopSync)
-		apiGroup.GET("/duplicates", api.FindDuplicates)
-		apiGroup.POST("/duplicates/remove", api.RemoveDuplicates)
-		apiGroup.POST("/playlists/export", api.ExportPlaylists)
-		apiGroup.GET("/ws", wsHub.HandleWS)
-	}
+	// Routes API — enregistrées par le package handler (token + rate limit
+	// appliqués dans RegisterRoutes). Le handshake WebSocket vit dans le même
+	// groupe pour hériter des mêmes contrôles.
+	api.RegisterRoutes(r)
 
 	// SPA fallback: serve the embedded frontend for any non-API route.
 	// http.FileServer resolves / -> index.html and serves static assets;
