@@ -1033,10 +1033,10 @@ func (m *Manager) fetchLyricsInBackground(task *DownloadTask) {
 	// 1. Marqueur soneph dans les métadonnées (idempotent) : chaque fichier
 	//    porte un tag TXXX:SONEPH + sa source, pour que l'app sache d'où
 	//    vient chaque morceau même si le fichier bouge (single → album).
-	tagScript := GetScriptPath("tag_soneph.py")
-	tagCmd := exec.Command(pythonExec, tagScript, m.downloadDir, task.URL)
-	if tagOut, tagErr := tagCmd.CombinedOutput(); tagErr == nil && len(strings.TrimSpace(string(tagOut))) > 0 {
-		m.appendLog(task, fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), strings.TrimSpace(string(tagOut))))
+	//    Port Go de tag_soneph.py (pkg/tags.StampSoneph) : plus aucun
+	//    sous-processus Python pour cette étape.
+	if n, tagErr := tags.StampSoneph(m.downloadDir, task.URL); tagErr == nil && n > 0 {
+		m.appendLog(task, fmt.Sprintf("[%s] SONEPH tags: %d fichier(s) marqué(s) dans les métadonnées.", time.Now().Format("15:04:05"), n))
 		m.notifyUpdate(task)
 	}
 

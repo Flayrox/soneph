@@ -372,7 +372,9 @@ func FileDetails(fullPath, relPath string) map[string]interface{} {
 		if c.Description == "" {
 			continue
 		}
-		custom[c.Description] = c.Text
+		// mutagen termine chaque champ par un séparateur (\x00 ou \x00\x00
+		// en UTF-16) que dhowden rend comme NUL final — on nettoie.
+		custom[trimTagField(c.Description)] = trimTagField(c.Text)
 	}
 	details["custom_tags"] = custom
 	details["lyrics_source"] = custom["LYRICS_SOURCE"]

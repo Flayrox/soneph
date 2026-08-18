@@ -1,7 +1,7 @@
 # ADR 0004 — Strangulation du pipeline Python (M5/M6)
 
-- Statut : accepté (M5 + M6 part 1 appliqués)
-- Date : 2026-08-17
+- Statut : accepté (M5 + M6 parts 1 et 2 appliqués)
+- Date : 2026-08-17 (mise à jour 2026-08-18)
 
 ## Contexte
 
@@ -37,16 +37,38 @@ sa copie Dockerfile et sa ligne README).
 | `extract_cover.py` | `pkg/tags.Cover` (APIC) | part 1 — supprimé |
 | `playlist_from_url.py` | `pkg/fastfilter.ResolvePlaylist` (par identité WOAS) | part 1 — supprimé |
 | `precreate_dirs.py` | — (reproduit les chemins de spotdl) | part 2 |
-| `tag_soneph.py` | — (écrit des frames TXXX) | part 2 |
-| `lyrics_retry.py` / `embed_lyrics.py` | — (fournisseur de paroles + écriture USLT/SYLT) | part 2 |
-| `patch_lyrics_timeout.py` | — (patch spotdl au build Docker, sans lien runtime) | part 2 |
+| `tag_soneph.py` | `pkg/tags.StampSoneph` (écrivain ID3 : TXXX splice + atomic) | part 2 — supprimé |
+| `lyrics_retry.py` / `embed_lyrics.py` | — (fournisseur de paroles + écriture USLT/SYLT) | part 3 |
+| `patch_lyrics_timeout.py` | — (patch spotdl au build Docker, sans lien runtime) | part 3 |
 
-### Ce qui reste (part 2) et pourquoi
+### Ce qui reste (part 3) et pourquoi
 
-Les quatre derniers scripts exigent une brique que dhowden/tag ne fournit
-pas : un **écrivain ID3** (frames TXXX, USLT, SYLT) et un **fournisseur de
-paroles synchronisées**. Le moteur de téléchargement reste spotdl (Python) :
-la strangulation complète du Python suivra le port du moteur lui-même.
+Il reste les scripts de **paroles** : un fournisseur de paroles synchronisées
+(`lyrics_retry.py`) et l'écriture USLT/SYLT (`embed_lyrics.py`), plus
+`precreate_dirs.py` (reproduit les chemins de dossier de spotdl) et le patch
+du build Docker. Le moteur de téléchargement reste spotdl (Python) : la
+strangulation complète du Python suivra le port du moteur lui-même.
+
+## Écrivain ID3 (M6 part 2)
+
+`pkg/tags/write.go` ajoute la brique d'écriture manquante (dhowden/tag ne
+sait que lire) : `StampSoneph(dir, url)` est le port fidèle de
+`tag_soneph.py` — TXXX:SONEPH, TXXX:SONEPH_SOURCE (ajoutés seulement si
+absents, idempotent), TXXX:SONEPH_QUALITY (débit **moyen** réel, parité
+mutagen `MP3.info.bitrate`, toujours rafraîchi si différent).
+
+Choix de conception :
+
+- **Splice octet pour octet** : les frames existantes sont préservées à
+  l'identique (aucune frame inconnue perdue), seule la liste des frames
+  TXXX gérées est modifiée ; la version du tag existant est conservée
+  (ID3v2.3 fraîche si le fichier n'en avait pas).
+- **Idempotence** : aucun octet écrit quand rien ne change (2e passage = 0).
+- **Écriture atomique** : temp dans le même dossier + rename, permissions
+  préservées — un crash ne laisse jamais un MP3 à moitié réécrit.
+- **Robustesse** : tags v2.2/v2.3/v2.4, extended header, unsynchronisation,
+  descriptions encodées en latin-1/UTF-16/UTF-8 — détectées quel que soit
+  l'outil qui les a écrites (mutagen, spotdl…).
 
 ## Conséquences
 

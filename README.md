@@ -181,15 +181,16 @@ Docker mounts `./downloads` as a volume: your files survive restarts and can be 
 
 > En M5/M6, la plupart des scripts ont été portés en Go : le fast filter et
 > la résolution de playlists (pkg/fastfilter), la carte d'identité WOAS, le
-> dump de détails et l'extraction de pochette (pkg/tags). Il ne reste que
-> ce qui exige un **écrivain** ID3 ou un fournisseur de paroles (M6 part 2).
+> dump de détails et l'extraction de pochette, et l'écriture du marqueur
+> soneph (pkg/tags, y compris l'écrivain ID3 de `StampSoneph`). Il ne reste
+> que ce qui exige un fournisseur de paroles ou le patch du build Docker.
 
 | Script | Role |
 |---|---|
 | `precreate_dirs.py` | pre-creates album folders (single → album) |
-| `tag_soneph.py` | `TXXX:SONEPH` marker + source + real bitrate |
 | `lyrics_retry.py` | synced lyrics + recorded source |
 | `embed_lyrics.py` | lyrics into ID3 tags (USLT/SYLT) |
+| `patch_lyrics_timeout.py` | spotdl patch at Docker build time (no runtime link) |
 
 ---
 
